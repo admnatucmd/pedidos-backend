@@ -1,0 +1,1872 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capta Shopping – Extrato de Pedidos</title>
+    <style>
+        /* ===== RESET E BASE ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #0b4f6c, #022c3a); color: white; padding: 20px 25px; }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .header .subtitle { font-size: 13px; opacity: 0.85; }
+        .last-update { font-size: 12px; margin-top: 8px; opacity: 0.8; }
+
+        /* ===== FILTROS ===== */
+        .filters { padding: 20px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+        .filter-group { flex: 1; min-width: 150px; }
+        .filter-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: #555; text-transform: uppercase; }
+        .filter-group input, .filter-group select { width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; }
+        .btn { background: #0b4f6c; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .btn:hover { background: #063a4f; }
+
+        /* ===== BOTÕES DE AÇÃO ===== */
+        .btn-actions { background: #f0f4f8; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid #e0e0e0; }
+        .btn-actions .btn { background: #0b4f6c; padding: 8px 16px; font-size: 13px; }
+        .btn-actions .btn:hover { background: #063a4f; }
+        .btn-actions .btn.active { background: #28a745; }
+        .btn-actions .btn.active:hover { background: #218838; }
+        .btn-actions .btn.voltar { background: #6c757d; }
+        .btn-actions .btn.voltar:hover { background: #5a6268; }
+
+        /* ===== SUBMENU ===== */
+        .submenu-container { padding: 8px 20px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-submenu { background: #e9ecef; color: #333; border: 1px solid #ccc; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+        .btn-submenu:hover { background: #0b4f6c; color: white; border-color: #0b4f6c; }
+        .btn-submenu.active { background: #0b4f6c; color: white; border-color: #0b4f6c; }
+
+        /* ===== STATS ===== */
+        .stats { background: #e9ecef; padding: 12px 20px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+        .stats span { font-weight: 700; color: #0b4f6c; }
+        .stats-hidden { display: none !important; }
+
+        /* ===== TABELA PRINCIPAL ===== */
+        .table-wrapper { padding: 20px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #1f5e7e; color: white; padding: 12px 10px; text-align: left; font-weight: 600; position: sticky; top: 0; white-space: nowrap; }
+        td { padding: 10px; border-bottom: 1px solid #e9ecef; vertical-align: middle; }
+        .pedido-row { cursor: pointer; transition: background 0.2s; }
+        .pedido-row:hover { background: #e8f4f8; }
+        .expand-icon { display: inline-block; margin-right: 8px; font-weight: bold; color: #0b4f6c; }
+        .parcelas-detail { display: none; background: #f8fafd; }
+        .parcelas-detail.show { display: table-row; }
+        .detail-card { padding: 16px; background: white; border-radius: 12px; margin: 8px; border-left: 4px solid #0b4f6c; }
+        .parcela-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+        .parcela-tipo { background: #f0f4f8; border-radius: 12px; padding: 12px; flex: 1; min-width: 280px; }
+        .parcela-tipo h4 { color: #0b4f6c; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #cbdde9; }
+        .parcela-item { padding: 10px 6px; border-bottom: 1px solid #e0e8f0; font-size: 12px; }
+        .parcela-item:last-child { border-bottom: none; }
+        .parcela-item strong { color: #1f5e7e; }
+        .parcela-paga { background: #d4edda !important; border-radius: 4px; }
+        .status-pagos { color: #28a745; font-weight: bold; }
+        .status-a-vencer { color: #e67e22; font-weight: bold; }
+        .status-em-atraso { color: #dc3545; font-weight: bold; }
+
+        /* ===== BOTÕES DE CÓPIA ===== */
+        .btn-copiar { background: #e9ecef; border: 1px solid #ccc; border-radius: 4px; padding: 3px 8px; font-size: 10px; cursor: pointer; margin: 2px; transition: all 0.2s; }
+        .btn-copiar:hover { background: #0b4f6c; color: white; border-color: #0b4f6c; }
+        .btn-pix { background: #d4edda; border-color: #28a745; color: #155724; }
+        .btn-pix:hover { background: #28a745; color: white; border-color: #28a745; }
+        .btn-barras { background: #cce5ff; border-color: #007bff; color: #004085; }
+        .btn-barras:hover { background: #007bff; color: white; border-color: #007bff; }
+        .codigos-container { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+
+        /* ===== CHECKBOX DE PAGAMENTO ===== */
+        .pagamento-checkbox { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
+        .pagamento-checkbox input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #28a745; }
+        .pagamento-checkbox.pago { color: #28a745; font-weight: bold; background: #d4edda; }
+        .pagamento-checkbox.nao-pago { color: #dc3545; background: #f8d7da; }
+        .btn-salvar-local { background: #28a745; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px; }
+        .btn-salvar-local:hover { background: #218838; }
+        .btn-exportar { background: #0b4f6c; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px; }
+        .btn-exportar:hover { background: #063a4f; }
+        .status-salvo { font-size: 11px; color: #28a745; margin-left: 8px; }
+        .sync-status { font-size: 11px; color: #667; margin-top: 4px; }
+        .sync-status.ok { color: #28a745; }
+        .sync-status.error { color: #dc3545; }
+
+        /* ===== LISTA DE MESES (ACORDION) ===== */
+        .mes-container-accordion { padding: 0 20px; background: #f8f9fa; }
+        .mes-accordion-item { border-bottom: 1px solid #e0e0e0; }
+        .mes-accordion-item:last-child { border-bottom: none; }
+        
+        .mes-accordion-header { 
+            background: white; 
+            padding: 10px 16px; 
+            cursor: pointer; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            transition: background 0.2s;
+            border-radius: 4px;
+            margin: 2px 0;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .mes-accordion-header:hover { background: #e8f4f8; }
+        .mes-accordion-header .mes-info { 
+            display: flex; 
+            gap: 15px; 
+            flex-wrap: wrap; 
+            font-size: 14px; 
+            align-items: center;
+            flex: 1;
+        }
+        .mes-accordion-header .mes-info strong { color: #0b4f6c; font-size: 15px; min-width: 140px; }
+        .mes-accordion-header .mes-info .badge { 
+            background: #0b4f6c; 
+            color: white; 
+            padding: 2px 12px; 
+            border-radius: 12px; 
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .mes-accordion-header .expand-icon { font-size: 18px; color: #0b4f6c; transition: transform 0.3s; }
+        .mes-accordion-header.active .expand-icon { transform: rotate(180deg); }
+        
+        .mes-total { font-weight: bold; color: #1a5c2e; min-width: 130px; }
+        .mes-pago { font-weight: bold; color: #28a745; min-width: 130px; }
+        .mes-pendente { font-weight: bold; color: #e67e22; min-width: 140px; }
+        .mes-pendente.zerado { color: #28a745; }
+        .mes-label { font-weight: 600; color: #555; font-size: 13px; }
+        
+        .mes-accordion-body { 
+            display: none; 
+            background: #f8fafd; 
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .mes-accordion-body.show { display: block; }
+        
+        .mes-accordion-body .pedido-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .mes-accordion-body .pedido-card:hover { background: #f0f4f8; border-color: #0b4f6c; }
+        .mes-accordion-body .pedido-card .pedido-info { 
+            display: flex; 
+            gap: 15px; 
+            flex-wrap: wrap; 
+            font-size: 13px; 
+            align-items: center;
+            flex: 1;
+        }
+        .mes-accordion-body .pedido-card .pedido-info strong { color: #0b4f6c; min-width: 100px; }
+        .mes-accordion-body .pedido-card .pedido-total { font-weight: bold; color: #28a745; min-width: 120px; text-align: right; }
+        
+        .pedido-detalhes-accordion { 
+            display: none; 
+            background: #f8fafd; 
+            padding: 12px 20px;
+            border-left: 3px solid #0b4f6c;
+            margin: 0 16px 12px 16px;
+            border-radius: 4px;
+        }
+        .pedido-detalhes-accordion.show { display: block; }
+
+        .btn-ver-pedido {
+            background: #0b4f6c;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-ver-pedido:hover { background: #063a4f; }
+
+        /* ===== BOLETOS A PAGAR ===== */
+        .boletos-container {
+            padding: 10px 20px;
+        }
+        .boletos-container .boleto-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+        .boletos-container .boleto-header {
+            padding: 10px 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .boletos-container .boleto-header:hover { background: #f0f4f8; }
+        .boletos-container .boleto-header .boleto-info {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            font-size: 13px;
+            flex: 1;
+        }
+        .boletos-container .boleto-header .boleto-info strong { color: #0b4f6c; min-width: 100px; }
+        .boletos-container .boleto-body {
+            display: none;
+            padding: 16px;
+            background: #f8fafd;
+            border-top: 1px solid #e0e0e0;
+        }
+        .boletos-container .boleto-body.show { display: block; }
+        .boletos-container .boleto-body .parcela-item {
+            background: white;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            border-left: 3px solid #e67e22;
+        }
+        .boletos-container .boleto-body .parcela-item.pago { border-left-color: #28a745; }
+        .boleto-vencimento {
+            background: #fff3cd;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #856404;
+            white-space: nowrap;
+        }
+        .boleto-total {
+            font-weight: bold;
+            color: #e67e22;
+            min-width: 120px;
+            text-align: right;
+        }
+        .boleto-total.pago { color: #28a745; }
+
+        /* ===== SEMANA INFO ===== */
+        .semana-info { background: #fff3cd; padding: 8px 20px; border-bottom: 1px solid #e0e0e0; font-size: 13px; color: #856404; }
+
+        /* ===== LOADING E ERROR ===== */
+        .loading { text-align: center; padding: 50px; color: #667; }
+        .error { background: #f8d7da; color: #721c24; padding: 20px; margin: 20px; border-radius: 8px; text-align: center; }
+
+        /* ===== RESPONSIVO ===== */
+        @media (max-width: 768px) { 
+            th, td { font-size: 11px; padding: 6px; }
+            .mes-accordion-header .mes-info { gap: 8px; font-size: 12px; }
+            .mes-accordion-header .mes-info strong { font-size: 13px; min-width: 100px; }
+            .mes-total, .mes-pago, .mes-pendente { min-width: 80px; font-size: 12px; }
+            .mes-label { font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+	<div class="header">
+    <h1>Gestão de Pedidos e Boletos</h1>
+    <div class="subtitle">| <span id="syncStatus">🔄 Sincronizando...</span></div>
+    <div class="last-update" id="lastUpdate"></div>
+	</div>
+
+    <div class="filters">
+        <div class="filter-group"><label>🔍 Buscar</label><input type="text" id="searchInput" placeholder="Pedido ou NF"></div>
+        <div class="filter-group"><label>📅 Data início</label><input type="date" id="startDate"></div>
+        <div class="filter-group"><label>📅 Data fim</label><input type="date" id="endDate"></div>
+        <div class="filter-group"><label> Situação</label><select id="statusFilter"><option value="">Todos</option><option value="pendente">Com parcelas pendentes</option><option value="pago">Totalmente quitados</option></select></div>
+        <button class="btn" onclick="resetFilters()">Limpar filtros</button>
+        <button class="btn" onclick="carregarDados()" style="background:#28a745;">🔄 Atualizar</button>
+    </div>
+
+    <div class="btn-actions">
+        <button class="btn" id="btnPedidosMes" onclick="mostrarPedidosPorMes()">📋 Pedidos realizados por mês</button>
+        <button class="btn" id="btnPagosMes" onclick="mostrarPagosPorMes()">Valor pago por mês</button>
+        <button class="btn" id="btnBoletosPagar" onclick="toggleSubmenuBoletos()">📅 Boletos a pagar</button>
+        <button class="btn voltar" onclick="voltarTabelaOriginal()">⬅️ Voltar</button>
+    </div>
+
+    <div id="submenuBoletos" class="submenu-container" style="display:none;">
+        <button class="btn-submenu" onclick="mostrarBoletosSemana()">📅 Essa semana</button>
+        <button class="btn-submenu" onclick="mostrarBoletosMes()">📅 Esse mês</button>
+        <button class="btn-submenu" onclick="mostrarBoletosAtrasados()">⚠️ Atrasados</button>
+    </div>
+
+    <div id="mesContainer" style="display:none;"></div>
+    <div id="semanaInfo" class="semana-info" style="display:none;"></div>
+
+<div class="stats" id="statsContainer">
+    <div><span id="totalCount">0</span></div>
+    <div>Total pendente: <strong id="totalPendenteGeral">R$ 0,00</strong></div>
+    <div>Total pago: <strong id="totalPagoGeral">R$ 0,00</strong></div>
+    <div>Total geral: <strong id="totalGeral">R$ 0,00</strong></div>
+</div>
+
+    <div id="loadingMsg" class="loading" style="display:none;">⏳ Carregando dados da planilha...</div>
+    <div id="errorMsg" class="error" style="display:none;"></div>
+
+    <div class="table-wrapper" id="tableWrapper">
+        <table id="dataTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Pedido</th>
+                    <th>Data</th>
+                    <th>NF</th>
+                    <th>Valor Total</th>
+                    <th>Produtos</th>
+                    <th>Royalties</th>
+                    <th>Propaganda</th>
+                    <th>Parcelas</th>
+                    <th>Valor Pendente</th>
+                    <th>Situação</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // ========== CONFIGURAÇÃO ==========
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkNuXfqcyRvNHefPchVpyjvQt4cBQCj38Atn1jSFUtErI1cIk3zFbv3xNwGdSWEOS04-QnmeuJayDo/pub?gid=0&single=true&output=csv";
+    const STORAGE_KEY = 'pagamentos_confirmados';
+    let pedidosData = [];
+    let pagamentosBackend = {};
+    let modoVisualizacao = 'tabela';
+    let pedidosFiltrados = [];
+
+    const nomesMeses = {
+        '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
+        '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
+        '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+    };
+
+    function getNomeMes(numero) { return nomesMeses[numero] || numero; }
+
+    // ========== CARREGAR DADOS ==========
+    async function carregarDados() {
+        const loadingDiv = document.getElementById('loadingMsg');
+        const errorDiv = document.getElementById('errorMsg');
+        const table = document.getElementById('dataTable');
+        const statusDiv = document.getElementById('syncStatus');
+        
+        loadingDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+        table.style.display = 'none';
+        document.getElementById('statsContainer').classList.add('stats-hidden');
+        statusDiv.textContent = '🔄 Sincronizando...';
+        
+        try {
+            await buscarPagamentosBackend();
+            statusDiv.textContent = '✅ Backend conectado';
+            statusDiv.style.color = '#28a745';
+            
+            const response = await fetch(CSV_URL);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const csvText = await response.text();
+            pedidosData = processarCSV(csvText);
+            
+            if (pedidosData.length === 0) throw new Error('Nenhum pedido encontrado');
+            
+            document.getElementById('mesContainer').style.display = 'none';
+            document.getElementById('semanaInfo').style.display = 'none';
+            document.getElementById('submenuBoletos').style.display = 'none';
+            
+            modoVisualizacao = 'tabela';
+            renderizarTabela();
+            table.style.display = 'table';
+            document.getElementById('statsContainer').classList.remove('stats-hidden');
+            document.getElementById('lastUpdate').innerHTML = `📆 Dados carregados: ${new Date().toLocaleString('pt-BR')}`;
+            
+        } catch (error) {
+            console.error(error);
+            statusDiv.textContent = '❌ Offline - usando dados locais';
+            statusDiv.style.color = '#dc3545';
+            errorDiv.innerHTML = `❌ Erro ao carregar dados: ${error.message}<br><br><button onclick="carregarDados()">Tentar novamente</button>`;
+            errorDiv.style.display = 'block';
+            document.getElementById('statsContainer').classList.add('stats-hidden');
+        }
+        
+        loadingDiv.style.display = 'none';
+    }
+
+    function calcularTotais(pedidos) {
+    let totalPendente = 0, totalPago = 0, totalGeral = 0;
+    pedidos.forEach(p => {
+        // ===== IGNORA PEDIDOS EM PROCESSAMENTO =====
+        if (p.emProcessamento) {
+            return; // Não contabiliza
+        }
+        
+        totalGeral += p.valorTotal;
+        
+        let totalParcelasExtraidas = 0;
+        let totalParcelasPagas = 0;
+        
+        // Produto
+        p.parcelasProduto.forEach(parc => {
+            totalParcelasExtraidas += parc.valor;
+            if (parc.status === 'Pagos' || isPago(p.pedido, parc.num, 'produto')) {
+                totalParcelasPagas += parc.valor;
+            }
+        });
+        // Royalties
+        p.parcelasRoyalties.forEach(parc => {
+            totalParcelasExtraidas += parc.valor;
+            if (parc.status === 'Pagos' || isPago(p.pedido, parc.num, 'royalties')) {
+                totalParcelasPagas += parc.valor;
+            }
+        });
+        // Propaganda
+        p.parcelasPropaganda.forEach(parc => {
+            totalParcelasExtraidas += parc.valor;
+            if (parc.status === 'Pagos' || isPago(p.pedido, parc.num, 'propaganda')) {
+                totalParcelasPagas += parc.valor;
+            }
+        });
+        
+        // Se não tem parcelas extraídas, considera o pedido como pago
+        if (totalParcelasExtraidas === 0) {
+            totalPago += p.valorTotal;
+        } 
+        // Se tem parcelas extraídas mas não cobrem o valor total,
+        // a diferença é considerada como paga
+        else if (totalParcelasExtraidas < p.valorTotal) {
+            const diferenca = p.valorTotal - totalParcelasExtraidas;
+            totalPago += totalParcelasPagas + diferenca;
+            totalPendente += (totalParcelasExtraidas - totalParcelasPagas);
+        }
+        // Se as parcelas extraídas cobrem o valor total, calcula normalmente
+        else {
+            totalPago += totalParcelasPagas;
+            totalPendente += (totalParcelasExtraidas - totalParcelasPagas);
+        }
+    });
+    return { totalPendente, totalPago, totalGeral };
+}
+
+    function getSemanaAtual() {
+        const hoje = new Date();
+        const diaSemana = hoje.getDay();
+        const diffSabado = (6 - diaSemana + 7) % 7;
+        const sabado = new Date(hoje);
+        sabado.setDate(hoje.getDate() - diffSabado);
+        const sexta = new Date(sabado);
+        sexta.setDate(sabado.getDate() + 6);
+        return { sabado, sexta };
+    }
+
+    function getMesAtual() {
+        const hoje = new Date();
+        const primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+        const ultimoDia = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+        return { primeiroDia, ultimoDia };
+    }
+
+    function dataParaComparacao(dataStr) {
+        const partes = dataStr.split('/');
+        if (partes.length === 3) {
+            return new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes[0]));
+        }
+        return new Date(dataStr);
+    }
+
+    function mesAnoParaComparacao(dataStr) {
+        if (!dataStr || dataStr === 'Sem Data' || dataStr === '') return null;
+        
+        const partes = dataStr.split('/');
+        if (partes.length === 3 && partes[1] && partes[2]) {
+            const mes = partes[1].padStart(2, '0');
+            return `${mes}/${partes[2]}`;
+        }
+        
+        const partesISO = dataStr.split('-');
+        if (partesISO.length === 3 && partesISO[1] && partesISO[0]) {
+            const mes = partesISO[1].padStart(2, '0');
+            return `${mes}/${partesISO[0]}`;
+        }
+        
+        return null;
+    }
+
+    function formatarMesAnoComNome(mesAno) {
+        if (!mesAno) return null;
+        const partes = mesAno.split('/');
+        if (partes.length !== 2) return mesAno;
+        const mes = partes[0].padStart(2, '0');
+        const ano = partes[1];
+        return `${getNomeMes(mes)} - ${mes}/${ano}`;
+    }
+
+    // ========== FUNÇÃO DE FORMATAÇÃO DE MOEDA ==========
+    function formatarMoedaBR(valor) {
+        return 'R$ ' + valor.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    // ========== FUNÇÕES DE VISUALIZAÇÃO ==========
+
+    function voltarTabelaOriginal() {
+        modoVisualizacao = 'tabela';
+        document.getElementById('mesContainer').style.display = 'none';
+        document.getElementById('semanaInfo').style.display = 'none';
+        document.getElementById('submenuBoletos').style.display = 'none';
+        document.querySelectorAll('.btn-actions .btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+        
+        const wrapper = document.getElementById('tableWrapper');
+        wrapper.innerHTML = `
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th>Pedido</th>
+                        <th>Data</th>
+                        <th>NF</th>
+                        <th>Valor Total</th>
+                        <th>Produtos</th>
+                        <th>Royalties</th>
+                        <th>Propaganda</th>
+                        <th>Parcelas</th>
+                        <th>Valor Pendente</th>
+                        <th>Situação</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        `;
+        document.getElementById('statsContainer').classList.remove('stats-hidden');
+        renderizarTabela();
+        document.getElementById('dataTable').style.display = 'table';
+    }
+
+    function toggleSubmenuBoletos() {
+    const submenu = document.getElementById('submenuBoletos');
+    const btnBoletos = document.getElementById('btnBoletosPagar');
+    
+    if (submenu.style.display === 'flex') {
+        // Fechar
+        submenu.style.display = 'none';
+        btnBoletos.classList.remove('active');
+        document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+        // Não remove o active de outros botões principais, apenas do boletos
+    } else {
+        // ===== LIMPA O ACTIVE DE TODOS OS BOTÕES PRINCIPAIS =====
+        document.querySelectorAll('.btn-actions .btn').forEach(b => {
+            b.classList.remove('active');
+        });
+        
+        // ===== FECHA SUBMENUS DE OUTROS BOTÕES =====
+        document.getElementById('submenuBoletos').style.display = 'none';
+        
+        // ===== ABRE O SUBMENU DE BOLETOS =====
+        document.getElementById('mesContainer').style.display = 'none';
+        document.getElementById('semanaInfo').style.display = 'none';
+        submenu.style.display = 'flex';
+        btnBoletos.classList.add('active');
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('statsContainer').classList.add('stats-hidden');
+        modoVisualizacao = 'boletos';
+        
+        // Abrir automaticamente "Essa semana"
+        mostrarBoletosSemana();
+    }
+}
+
+    // ========== FUNÇÃO PARA VOLTAR À TABELA ORIGINAL E IR PARA UM PEDIDO ESPECÍFICO ==========
+    function irParaPedido(pedidoId) {
+        voltarTabelaOriginal();
+        
+        // Esperar a tabela renderizar
+        setTimeout(() => {
+            // Procurar o pedido na tabela
+            const rows = document.querySelectorAll('.pedido-row');
+            for (let row of rows) {
+                if (row.textContent.includes(pedidoId)) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    row.style.backgroundColor = '#e8f4f8';
+                    row.style.transition = 'background 0.3s';
+                    
+                    // Abrir o detalhe do pedido
+                    const detailId = `detalhe-${pedidoId}`;
+                    const detailRow = document.getElementById(detailId);
+                    if (detailRow) {
+                        detailRow.classList.add('show');
+                        const icon = row.querySelector('.expand-icon');
+                        if (icon) icon.innerHTML = '▼';
+                    }
+                    
+                    setTimeout(() => {
+                        row.style.backgroundColor = '';
+                    }, 3000);
+                    break;
+                }
+            }
+        }, 300);
+    }
+
+    // ========== PEDIDOS REALIZADOS POR MÊS (ACORDION) ==========
+    function mostrarPedidosPorMes() {
+    modoVisualizacao = 'pedidosMes';
+    document.querySelectorAll('.btn-actions .btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btnPedidosMes').classList.add('active');
+    document.getElementById('dataTable').style.display = 'none';
+    document.getElementById('semanaInfo').style.display = 'none';
+    document.getElementById('submenuBoletos').style.display = 'none';
+    document.getElementById('statsContainer').classList.add('stats-hidden');
+    document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+    
+    // ===== PRIMEIRO: Encontrar o mês mais recente com data =====
+    let mesMaisRecente = null;
+    let dataMaisRecente = null;
+    
+    pedidosData.forEach(p => {
+        if (!p.isSemData && p.dataEmissao && p.dataEmissao !== 'Sem Data') {
+            const data = new Date(p.dataEmissao);
+            if (!isNaN(data)) {
+                if (!dataMaisRecente || data > dataMaisRecente) {
+                    dataMaisRecente = data;
+                    const mesAno = `${String(data.getMonth() + 1).padStart(2, '0')}/${data.getFullYear()}`;
+                    mesMaisRecente = mesAno;
+                }
+            }
+        }
+    });
+    
+    // Agrupar pedidos por mês
+    const meses = {};
+    pedidosData.forEach(p => {
+        let mesAno;
+        
+        if (p.isSemData) {
+            // ===== PEDIDO SEM DATA: usa o mês mais recente =====
+            mesAno = mesMaisRecente;
+        } else {
+            mesAno = mesAnoParaComparacao(p.dataEmissao);
+        }
+        
+        if (mesAno) {
+            if (!meses[mesAno]) meses[mesAno] = [];
+            meses[mesAno].push(p);
+        }
+    });
+    
+    // Ordenar meses (mais recente primeiro)
+    const mesesOrdenados = Object.keys(meses).sort((a, b) => {
+        const [ma, aa] = a.split('/');
+        const [mb, ab] = b.split('/');
+        if (aa !== ab) return parseInt(ab) - parseInt(aa);
+        return parseInt(mb) - parseInt(ma);
+    });
+    
+    let html = '<div class="mes-container-accordion">';
+    
+    mesesOrdenados.forEach(mes => {
+        const pedidos = meses[mes];
+        const totalPedidos = pedidos.length;
+        const totalValor = pedidos.reduce((sum, p) => sum + p.valorTotal, 0);
+        
+        // Calcular total pago e pendente do mês
+        let totalPagoMes = 0, totalPendenteMes = 0;
+        pedidos.forEach(p => {
+            const stats = calcularTotais([p]);
+            totalPagoMes += stats.totalPago;
+            totalPendenteMes += stats.totalPendente;
+        });
+        
+        const nomeMes = formatarMesAnoComNome(mes);
+        const mesId = mes.replace('/', '_');
+        const pendenteClass = totalPendenteMes === 0 ? 'zerado' : '';
+        
+        html += `
+            <div class="mes-accordion-item">
+                <div class="mes-accordion-header" onclick="toggleMesAcordion('${mesId}')">
+                    <div class="mes-info">
+                        <strong>${nomeMes}</strong>
+                        <span class="badge">${totalPedidos} pedidos</span>
+                        <span class="mes-total"><span class="mes-label">Total:</span> ${formatarMoedaBR(totalValor)}</span>
+                        <span class="mes-pago"><span class="mes-label">Pago:</span> ${formatarMoedaBR(totalPagoMes)}</span>
+                        <span class="mes-pendente ${pendenteClass}"><span class="mes-label">Pendente:</span> ${formatarMoedaBR(totalPendenteMes)}</span>
+                    </div>
+                    <span class="expand-icon" id="icon-${mesId}">▼</span>
+                </div>
+                <div class="mes-accordion-body" id="body-${mesId}">
+        `;
+        
+        // Listar pedidos do mês
+        pedidos.forEach(p => {
+            const statsP = calcularTotais([p]);
+            const statusText = p.totalmentePago ? '✅ Totalmente Pago' : `⚠️ Pendente: ${formatarMoedaBR(statsP.totalPendente)}`;
+            const statusClass = p.totalmentePago ? 'status-pagos' : 'status-a-vencer';
+            const pedidoId = p.pedido.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            // Verifica se é "Sem Data" para exibir diferente
+            const isSemData = p.isSemData;
+            const dataDisplay = isSemData ? '📅 Sem Data' : `📅 ${formatarDataBR(p.dataEmissao)}`;
+            const styleSemData = isSemData ? 'background: #fff8e1;' : '';
+            
+            html += `
+                <div class="pedido-card" onclick="togglePedidoAcordion('${pedidoId}', '${mesId}')" style="${styleSemData}">
+                    <div class="pedido-info">
+                        <span class="expand-icon" id="icon-pedido-${pedidoId}">▶</span>
+                        <strong>${p.pedido}</strong>
+                        <span>${dataDisplay}</span>
+                        <span>NF: ${p.notaFiscal}</span>
+                        <span>${p.totalParcelas}x</span>
+                        <span class="${statusClass}">${statusText}</span>
+                        ${isSemData ? '<span style="color:#f39c12; font-size:11px;">⚠️ Sem data</span>' : ''}
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span class="pedido-total">${formatarMoedaBR(p.valorTotal)}</span>
+                        <button class="btn-ver-pedido" onclick="event.stopPropagation(); irParaPedido('${p.pedido}')">🔍 Ver pedido completo</button>
+                    </div>
+                </div>
+                <div class="pedido-detalhes-accordion" id="detalhe-pedido-${pedidoId}">
+                    <div class="detail-card" style="${isSemData ? 'border-left-color: #f39c12;' : ''}">
+                        <strong>📋 Detalhamento das Parcelas - Pedido ${p.pedido}</strong>
+                        ${isSemData ? '<div style="color:#f39c12; margin-bottom:10px;">⚠️ Este pedido está com "Sem Data" - Aguardando processamento completo</div>' : ''}
+                        <div style="font-size:12px; color:#667; margin-bottom:10px;">
+                            ✅ Marque o checkbox para confirmar o pagamento manualmente.
+                            <span id="statusSalvo" class="status-salvo"></span>
+                        </div>
+                        <div class="parcela-grid">
+                            ${formatarParcelasHTML(p.parcelasProduto, 'Produto', 'produto', p.pedido)}
+                            ${formatarParcelasHTML(p.parcelasRoyalties, 'Royalties', 'royalties', p.pedido)}
+                            ${formatarParcelasHTML(p.parcelasPropaganda, 'Propaganda', 'propaganda', p.pedido)}
+                        </div>
+                        <div style="margin-top:12px;">
+                            <button class="btn-exportar" onclick="exportarPagamentos()">📤 Exportar marcações</button>
+                            <button class="btn-salvar-local" onclick="limparPagamentos()" style="background:#dc3545;">🗑️ Limpar todas</button>
+                            <button class="btn-ver-pedido" onclick="irParaPedido('${p.pedido}')" style="padding:8px 16px;">🔍 Ver pedido completo na lista</button>
+                        </div>
+                        <small>Fonte: Google Sheets | ${new Date().toLocaleString('pt-BR')}</small>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    const container = document.getElementById('mesContainer');
+    container.innerHTML = html;
+    container.style.display = 'block';
+    
+    // Todos os meses começam fechados
+}
+
+
+    function toggleMesAcordion(mesId) {
+        const body = document.getElementById(`body-${mesId}`);
+        const icon = document.getElementById(`icon-${mesId}`);
+        const header = body?.previousElementSibling;
+        
+        if (!body) return;
+        
+        if (body.classList.contains('show')) {
+            body.classList.remove('show');
+            icon.textContent = '▼';
+            if (header) header.classList.remove('active');
+        } else {
+            body.classList.add('show');
+            icon.textContent = '▲';
+            if (header) header.classList.add('active');
+        }
+    }
+
+    function togglePedidoAcordion(pedidoId, mesId) {
+        const detalhe = document.getElementById(`detalhe-pedido-${pedidoId}`);
+        const icon = document.getElementById(`icon-pedido-${pedidoId}`);
+        
+        if (!detalhe) return;
+        
+        if (detalhe.classList.contains('show')) {
+            detalhe.classList.remove('show');
+            icon.textContent = '▶';
+        } else {
+            detalhe.classList.add('show');
+            icon.textContent = '▼';
+        }
+    }
+
+    // ========== VALOR PAGO POR MÊS (ACORDION) ==========
+    function mostrarPagosPorMes() {
+    modoVisualizacao = 'pagosMes';
+    document.querySelectorAll('.btn-actions .btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btnPagosMes').classList.add('active');
+    document.getElementById('dataTable').style.display = 'none';
+    document.getElementById('semanaInfo').style.display = 'none';
+    document.getElementById('submenuBoletos').style.display = 'none';
+    document.getElementById('statsContainer').classList.add('stats-hidden');
+    document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+    
+    const pagamentosPorMes = {};
+    
+    pedidosData.forEach(p => {
+        const processarParcelas = (parcelas, tipo) => {
+            parcelas.forEach(parc => {
+                if (parc.status === 'Pagos' || isPago(p.pedido, parc.num, tipo)) {
+                    const mesAno = mesAnoParaComparacao(parc.vencimento);
+                    if (mesAno) {
+                        if (!pagamentosPorMes[mesAno]) pagamentosPorMes[mesAno] = [];
+                        pagamentosPorMes[mesAno].push({ pedido: p, parcela: parc, tipo: tipo });
+                    }
+                }
+            });
+        };
+        processarParcelas(p.parcelasProduto, 'produto');
+        processarParcelas(p.parcelasRoyalties, 'royalties');
+        processarParcelas(p.parcelasPropaganda, 'propaganda');
+    });
+    
+    const mesesOrdenados = Object.keys(pagamentosPorMes).sort((a, b) => {
+        const [ma, aa] = a.split('/');
+        const [mb, ab] = b.split('/');
+        if (aa !== ab) return parseInt(ab) - parseInt(aa);
+        return parseInt(mb) - parseInt(ma);
+    });
+    
+    let html = '<div class="mes-container-accordion">';
+    
+    mesesOrdenados.forEach(mes => {
+        const itens = pagamentosPorMes[mes];
+        const total = itens.reduce((sum, item) => sum + item.parcela.valor, 0);
+        const nomeMes = formatarMesAnoComNome(mes);
+        const mesId = 'pagos_' + mes.replace('/', '_');
+        
+        html += `
+            <div class="mes-accordion-item">
+                <div class="mes-accordion-header" onclick="toggleMesAcordion('${mesId}')">
+                    <div class="mes-info">
+                        <strong>${nomeMes}</strong>
+                        <span class="badge">${itens.length} boletos pagos</span>
+                        <span class="mes-total"><span class="mes-label">Total:</span> ${formatarMoedaBR(total)}</span>
+                    </div>
+                    <span class="expand-icon" id="icon-${mesId}">▼</span>
+                </div>
+                <div class="mes-accordion-body" id="body-${mesId}">
+        `;
+        
+        // Agrupar por pedido
+        const pedidosPagos = {};
+        itens.forEach(item => {
+            if (!pedidosPagos[item.pedido.pedido]) {
+                pedidosPagos[item.pedido.pedido] = { pedido: item.pedido, parcelas: [] };
+            }
+            pedidosPagos[item.pedido.pedido].parcelas.push(item);
+        });
+        
+        // ===== ORDENAR PEDIDOS PELA DATA DE VENCIMENTO DO BOLETO (MAIS RECENTE PRIMEIRO) =====
+        const pedidosOrdenados = Object.keys(pedidosPagos).sort((a, b) => {
+            const itemA = pedidosPagos[a];
+            const itemB = pedidosPagos[b];
+            
+            // Pega a data de vencimento da primeira parcela de cada pedido
+            const dataA = dataParaComparacao(itemA.parcelas[0].parcela.vencimento);
+            const dataB = dataParaComparacao(itemB.parcelas[0].parcela.vencimento);
+            
+            // Ordena do mais recente para o mais antigo
+            return dataB - dataA;
+        });
+        
+        pedidosOrdenados.forEach(pedidoId => {
+            const item = pedidosPagos[pedidoId];
+            const totalPedido = item.parcelas.reduce((sum, p) => sum + p.parcela.valor, 0);
+            const pId = item.pedido.pedido.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            // Pega a data de vencimento da primeira parcela paga
+            const dataVencimento = item.parcelas[0].parcela.vencimento;
+            
+            html += `
+                <div class="pedido-card" onclick="togglePedidoAcordion('${pId}', '${mesId}')" style="border-left-color: #28a745;">
+                    <div class="pedido-info">
+                        <span class="expand-icon" id="icon-pedido-${pId}">▶</span>
+                        <strong>${item.pedido.pedido}</strong>
+                        <span>📅 Boleto: ${dataVencimento}</span>
+                        <span>${item.parcelas.length} boletos pagos</span>
+                        <span style="font-size:11px; color:#667;">Pedido feito em ${formatarDataBR(item.pedido.dataEmissao)}</span>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span class="pedido-total">${formatarMoedaBR(totalPedido)}</span>
+                        <button class="btn-ver-pedido" onclick="event.stopPropagation(); irParaPedido('${item.pedido.pedido}')">🔍 Ver pedido completo</button>
+                    </div>
+                </div>
+                <div class="pedido-detalhes-accordion" id="detalhe-pedido-${pId}">
+                    <div class="detail-card" style="border-left-color: #28a745;">
+                        <strong>📋 Boletos pagos do Pedido ${item.pedido.pedido}</strong>
+                        <table style="width:100%; margin-top:10px;">
+                            <thead><tr><th>Parcela</th><th>Tipo</th><th>Valor</th><th>Vencimento</th></tr></thead>
+                            <tbody>
+            `;
+            
+            // Ordenar parcelas por vencimento (mais recente primeiro)
+            const parcelasOrdenadas = [...item.parcelas].sort((a, b) => {
+                return dataParaComparacao(b.parcela.vencimento) - dataParaComparacao(a.parcela.vencimento);
+            });
+            
+            parcelasOrdenadas.forEach(p => {
+                html += `<tr><td>${p.parcela.num}ª parcela</td><td>${p.tipo}</td><td>${formatarMoedaBR(p.parcela.valor)}</td><td>${p.parcela.vencimento}</td></tr>`;
+            });
+            
+            html += `</tbody></table>
+                        <div style="margin-top:12px;">
+                            <button class="btn-ver-pedido" onclick="irParaPedido('${item.pedido.pedido}')" style="padding:8px 16px;">🔍 Ver pedido completo na lista</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    const container = document.getElementById('mesContainer');
+    container.innerHTML = html;
+    container.style.display = 'block';
+    
+    // Todos os meses começam fechados
+}
+
+    // ========== FUNÇÃO PARA RENDERIZAR BOLETOS COM CHECKBOX ==========
+    function renderizarBoletos(boletos, titulo) {
+        let html = `<div class="mes-resumo" style="padding: 10px 20px; background: #e9ecef; border-bottom: 1px solid #ddd;">
+            ${titulo} | Total: <strong>${formatarMoedaBR(boletos.reduce((sum, item) => sum + item.parcela.valor, 0))}</strong>
+        </div>`;
+        html += '<div class="boletos-container">';
+        
+        if (boletos.length === 0) {
+            html += '<div style="text-align:center; padding:20px; color:#667;">✅ Nenhum boleto encontrado!</div>';
+        } else {
+            // Agrupar por pedido
+            const pedidosAgrupados = {};
+            boletos.forEach(item => {
+                if (!pedidosAgrupados[item.pedido.pedido]) {
+                    pedidosAgrupados[item.pedido.pedido] = { pedido: item.pedido, parcelas: [] };
+                }
+                pedidosAgrupados[item.pedido.pedido].parcelas.push(item);
+            });
+            
+            Object.keys(pedidosAgrupados).forEach(pedidoId => {
+                const item = pedidosAgrupados[pedidoId];
+                const totalPedido = item.parcelas.reduce((sum, p) => sum + p.parcela.valor, 0);
+                
+                // Verificar se todas as parcelas estão pagas
+                const todasPagas = item.parcelas.every(p => 
+                    p.parcela.status === 'Pagos' || isPago(pedidoId, p.parcela.num, p.tipo)
+                );
+                
+                // Ordenar parcelas por vencimento
+                item.parcelas.sort((a, b) => dataParaComparacao(a.parcela.vencimento) - dataParaComparacao(b.parcela.vencimento));
+                
+                html += `
+                    <div class="boleto-card">
+                        <div class="boleto-header" onclick="toggleBoletoDetalhe('boleto-${pedidoId}')">
+                            <div class="boleto-info">
+                                <span class="expand-icon" id="icon-boleto-${pedidoId}">▶</span>
+                                <strong>${pedidoId}</strong>
+                                <span>NF: ${item.pedido.notaFiscal}</span>
+                                <span>📅 Vencimento: ${item.parcelas[0].parcela.vencimento}</span>
+                                <span class="boleto-vencimento">${item.parcelas.length} boletos</span>
+                                ${todasPagas ? '<span style="color:#28a745; font-weight:bold;">✅ Todos pagos</span>' : '<span style="color:#e67e22; font-weight:bold;">⏳ Pendentes</span>'}
+                            </div>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <span class="boleto-total ${todasPagas ? 'pago' : ''}">${formatarMoedaBR(totalPedido)}</span>
+                                <button class="btn-ver-pedido" onclick="event.stopPropagation(); irParaPedido('${pedidoId}')">🔍 Ver pedido completo</button>
+                            </div>
+                        </div>
+                        <div class="boleto-body" id="boleto-${pedidoId}">
+                `;
+                
+                item.parcelas.forEach(p => {
+                    const parc = p.parcela;
+                    const tipo = p.tipo;
+                    const pagoManual = isPago(pedidoId, parc.num, tipo);
+                    const pagoOriginal = parc.status === 'Pagos';
+                    const pago = pagoOriginal || pagoManual;
+                    const checked = pago ? 'checked' : '';
+                    const labelClass = pago ? 'pago' : 'nao-pago';
+                    const labelText = pago ? '✅ Pago' : '⏳ Pendente';
+                    const classePaga = pago ? 'pago' : '';
+                    
+                    html += `
+                        <div class="parcela-item ${classePaga}">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap;">
+                                <div>
+                                    <strong>${tipo.charAt(0).toUpperCase() + tipo.slice(1)} - Parcela ${parc.num.toString().padStart(2, '0')}</strong><br>
+                                    Valor: ${formatarMoedaBR(parc.valor)}<br>
+                                    Vencimento: ${parc.vencimento}
+                                </div>
+                                <div style="text-align:right;">
+                                    <span class="${parc.status === 'Pagos' ? 'status-pagos' : 'status-a-vencer'}">${parc.status || 'A vencer'}</span>
+                                </div>
+                            </div>
+                            <div class="codigos-container" style="margin-top: 6px;">
+                    `;
+                    
+                    if (tipo === 'produto') {
+                        if (parc.codigoPix) {
+                            html += `<button class="btn-copiar btn-pix" onclick="copiarTexto('${parc.codigoPix.replace(/'/g, "\\'")}')">PIX</button>`;
+                        }
+                        if (parc.codigoBarras) {
+                            html += `<button class="btn-copiar btn-barras" onclick="copiarTexto('${parc.codigoBarras.replace(/'/g, "\\'")}')">Cód. Barras</button>`;
+                        }
+                    }
+                    
+                    if (tipo === 'royalties' || tipo === 'propaganda') {
+                        if (parc.codigoBarras) {
+                            html += `<button class="btn-copiar btn-barras" onclick="copiarTexto('${parc.codigoBarras.replace(/'/g, "\\'")}')">Cód. Barras</button>`;
+                        }
+                    }
+                    
+                    const chave = `${pedidoId}_${parc.num}_${tipo}`;
+                    html += `
+                            </div>
+                            <div class="codigos-container" style="margin-top: 6px;">
+                                <label class="pagamento-checkbox ${labelClass}" onclick="event.stopPropagation();">
+                                    <input type="checkbox" data-id="${chave}" ${checked} onchange="handlePagamentoChange('${pedidoId}', ${parc.num}, '${tipo}', this.checked)">
+                                    <span>${labelText}</span>
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        html += '</div>';
+        return html;
+    }
+
+    // ========== BOLETOS A PAGAR ==========
+    function mostrarBoletosSemana() {
+        document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+        document.querySelector('.btn-submenu:first-child')?.classList.add('active');
+        
+        document.getElementById('submenuBoletos').style.display = 'flex';
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('mesContainer').style.display = 'none';
+        document.getElementById('semanaInfo').style.display = 'block';
+        document.getElementById('statsContainer').classList.add('stats-hidden');
+        
+        const { sabado, sexta } = getSemanaAtual();
+        document.getElementById('semanaInfo').innerHTML = `📅 Semana atual: ${sabado.toLocaleDateString('pt-BR')} a ${sexta.toLocaleDateString('pt-BR')}`;
+        
+        let boletosSemana = [];
+        
+        pedidosData.forEach(p => {
+            const processarParcelas = (parcelas, tipo) => {
+                parcelas.forEach(parc => {
+                    // Mostrar apenas boletos não pagos
+                    if (parc.status !== 'Pagos' && !isPago(p.pedido, parc.num, tipo)) {
+                        const dataVenc = dataParaComparacao(parc.vencimento);
+                        if (dataVenc >= sabado && dataVenc <= sexta) {
+                            boletosSemana.push({ pedido: p, parcela: parc, tipo: tipo });
+                        }
+                    }
+                });
+            };
+            processarParcelas(p.parcelasProduto, 'produto');
+            processarParcelas(p.parcelasRoyalties, 'royalties');
+            processarParcelas(p.parcelasPropaganda, 'propaganda');
+        });
+        
+        boletosSemana.sort((a, b) => dataParaComparacao(a.parcela.vencimento) - dataParaComparacao(b.parcela.vencimento));
+        
+        const titulo = `📅 ${boletosSemana.length} boletos a pagar esta semana`;
+        document.getElementById('mesContainer').innerHTML = renderizarBoletos(boletosSemana, titulo);
+        document.getElementById('mesContainer').style.display = 'block';
+    }
+
+    function mostrarBoletosMes() {
+        document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.btn-submenu')[1]?.classList.add('active');
+        
+        document.getElementById('submenuBoletos').style.display = 'flex';
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('mesContainer').style.display = 'none';
+        document.getElementById('semanaInfo').style.display = 'block';
+        document.getElementById('statsContainer').classList.add('stats-hidden');
+        
+        const { primeiroDia, ultimoDia } = getMesAtual();
+        document.getElementById('semanaInfo').innerHTML = `📅 Mês atual: ${primeiroDia.toLocaleDateString('pt-BR')} a ${ultimoDia.toLocaleDateString('pt-BR')}`;
+        
+        let boletosMes = [];
+        
+        pedidosData.forEach(p => {
+            const processarParcelas = (parcelas, tipo) => {
+                parcelas.forEach(parc => {
+                    // Mostrar apenas boletos não pagos
+                    if (parc.status !== 'Pagos' && !isPago(p.pedido, parc.num, tipo)) {
+                        const dataVenc = dataParaComparacao(parc.vencimento);
+                        if (dataVenc >= primeiroDia && dataVenc <= ultimoDia) {
+                            boletosMes.push({ pedido: p, parcela: parc, tipo: tipo });
+                        }
+                    }
+                });
+            };
+            processarParcelas(p.parcelasProduto, 'produto');
+            processarParcelas(p.parcelasRoyalties, 'royalties');
+            processarParcelas(p.parcelasPropaganda, 'propaganda');
+        });
+        
+        boletosMes.sort((a, b) => dataParaComparacao(a.parcela.vencimento) - dataParaComparacao(b.parcela.vencimento));
+        
+        const titulo = `📅 ${boletosMes.length} boletos a pagar neste mês`;
+        document.getElementById('mesContainer').innerHTML = renderizarBoletos(boletosMes, titulo);
+        document.getElementById('mesContainer').style.display = 'block';
+    }
+
+    // ========== BOLETOS ATRASADOS ==========
+    function mostrarBoletosAtrasados() {
+        document.querySelectorAll('.btn-submenu').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.btn-submenu')[2]?.classList.add('active');
+        
+        document.getElementById('submenuBoletos').style.display = 'flex';
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('mesContainer').style.display = 'none';
+        document.getElementById('semanaInfo').style.display = 'block';
+        document.getElementById('statsContainer').classList.add('stats-hidden');
+        
+        const hoje = new Date();
+        document.getElementById('semanaInfo').innerHTML = `⚠️ Boletos com vencimento anterior a ${hoje.toLocaleDateString('pt-BR')}`;
+        
+        let boletosAtrasados = [];
+        
+        pedidosData.forEach(p => {
+            const processarParcelas = (parcelas, tipo) => {
+                parcelas.forEach(parc => {
+                    // Mostrar apenas boletos não pagos e com vencimento anterior a hoje
+                    if (parc.status !== 'Pagos' && !isPago(p.pedido, parc.num, tipo)) {
+                        const dataVenc = dataParaComparacao(parc.vencimento);
+                        if (dataVenc < hoje) {
+                            boletosAtrasados.push({ pedido: p, parcela: parc, tipo: tipo });
+                        }
+                    }
+                });
+            };
+            processarParcelas(p.parcelasProduto, 'produto');
+            processarParcelas(p.parcelasRoyalties, 'royalties');
+            processarParcelas(p.parcelasPropaganda, 'propaganda');
+        });
+        
+        boletosAtrasados.sort((a, b) => dataParaComparacao(a.parcela.vencimento) - dataParaComparacao(b.parcela.vencimento));
+        
+        const titulo = `⚠️ ${boletosAtrasados.length} boletos em atraso`;
+        document.getElementById('mesContainer').innerHTML = renderizarBoletos(boletosAtrasados, titulo);
+        document.getElementById('mesContainer').style.display = 'block';
+    }
+
+    function toggleBoletoDetalhe(id) {
+        const body = document.getElementById(id);
+        const icon = document.getElementById(`icon-${id}`);
+        
+        if (!body) return;
+        
+        if (body.classList.contains('show')) {
+            body.classList.remove('show');
+            icon.textContent = '▶';
+        } else {
+            body.classList.add('show');
+            icon.textContent = '▼';
+        }
+    }
+
+    // ========== DEMais FUNÇÕES ==========
+    
+    async function buscarPagamentosBackend() {
+        try {
+            const response = await fetch('/api/pagamentos');
+            if (!response.ok) throw new Error('Erro ao buscar pagamentos');
+            const data = await response.json();
+            
+            const pagamentos = {};
+            data.forEach(p => {
+                const chave = `${p.pedido}_${p.parcela}_${p.tipo}`;
+                pagamentos[chave] = p.pago;
+            });
+            
+            pagamentosBackend = pagamentos;
+            localStorage.setItem('pagamentos_backend', JSON.stringify(pagamentos));
+            return pagamentos;
+        } catch (error) {
+            console.warn('Erro ao buscar pagamentos do backend:', error);
+            const cached = localStorage.getItem('pagamentos_backend');
+            if (cached) {
+                pagamentosBackend = JSON.parse(cached);
+                return pagamentosBackend;
+            }
+            return {};
+        }
+    }
+
+    async function salvarPagamentoBackend(pedidoId, parcelaId, tipo, pago) {
+        const data = { pedido: pedidoId, parcela: parcelaId, tipo: tipo, pago: pago };
+        
+        try {
+            const response = await fetch('/api/pagamento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            if (!response.ok) throw new Error(await response.text());
+            
+            const chave = `${pedidoId}_${parcelaId}_${tipo}`;
+            if (pago) pagamentosBackend[chave] = true;
+            else delete pagamentosBackend[chave];
+            localStorage.setItem('pagamentos_backend', JSON.stringify(pagamentosBackend));
+            return true;
+        } catch (error) {
+            console.error('❌ Erro ao salvar pagamento:', error);
+            const chave = `${pedidoId}_${parcelaId}_${tipo}`;
+            const pagamentosLocal = carregarPagamentosSalvos();
+            if (pago) pagamentosLocal[chave] = true;
+            else delete pagamentosLocal[chave];
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(pagamentosLocal));
+            return false;
+        }
+    }
+
+    function carregarPagamentosSalvos() {
+        try {
+            const dados = localStorage.getItem(STORAGE_KEY);
+            return dados ? JSON.parse(dados) : {};
+        } catch { return {}; }
+    }
+
+    function isPago(pedidoId, parcelaId, tipo) {
+        const chave = `${pedidoId}_${parcelaId}_${tipo}`;
+        if (pagamentosBackend && pagamentosBackend[chave] !== undefined) return pagamentosBackend[chave];
+        const local = carregarPagamentosSalvos();
+        return local[chave] || false;
+    }
+
+    // ========== PROCESSAR CSV ==========
+    function parseCSVLinha(linha) {
+        const res = [];
+        let dentro = false;
+        let val = '';
+        for (let ch of linha) {
+            if (ch === '"') dentro = !dentro;
+            else if (ch === ',' && !dentro) { res.push(val); val = ''; }
+            else val += ch;
+        }
+        res.push(val);
+        return res;
+    }
+
+    function extrairParcelaInfo(texto) {
+        if (!texto || texto === 'Nenhum') return null;
+        
+        const valorMatch = texto.match(/Valor:\s*R\$\s*([\d\.,]+)/);
+        const vencMatch = texto.match(/Vencimento:\s*(\d{2}\/\d{2}\/\d{4})/);
+        let status = 'A vencer';
+        if (texto.includes('Pagos')) status = 'Pagos';
+        else if (texto.includes('Em atraso')) status = 'Em atraso';
+        else if (texto.includes('A vencer')) status = 'A vencer';
+        
+        return {
+            valor: valorMatch ? parseFloat(valorMatch[1].replace(/\./g, '').replace(',', '.')) : 0,
+            vencimento: vencMatch ? vencMatch[1] : '',
+            status: status
+        };
+    }
+
+    function processarCSV(csvTexto) {
+    const linhas = csvTexto.trim().split(/\r?\n/);
+    if (linhas.length < 2) return [];
+    
+    const cabecalho = linhas[0].split(',').map(c => c.replace(/["']/g, '').trim());
+    
+    const idxPedido = 0, idxData = 1, idxNF = 2, idxValorTotal = 3;
+    const idxValorProdutos = 4, idxRoyalties = 5, idxPropaganda = 6, idxParcelas = 7;
+    const idxProdutoParcelas = 10, idxRoyaltiesParcelas = 29, idxPropagandaParcelas = 48;
+    const produtoValores = [11, 14, 17, 20, 23, 26];
+    const royaltiesValores = [30, 33, 36, 39, 42, 45];
+    const propagandaValores = [49, 52, 55, 58, 61, 64];
+    const produtoPix = [12, 15, 18, 21, 24, 27];
+    const produtoBarras = [13, 16, 19, 22, 25, 28];
+    const royaltiesBarras = [32, 35, 38, 41, 44, 47];
+    const propagandaBarras = [51, 54, 57, 60, 63, 66];
+    
+    const pedidos = [];
+    
+    for (let i = 1; i < linhas.length; i++) {
+        const valores = parseCSVLinha(linhas[i]);
+        if (valores.length < 10) continue;
+        
+        const pedidoId = valores[idxPedido]?.replace(/"/g, '').trim();
+        if (!pedidoId || pedidoId === 'Pedido') continue;
+        
+        // ===== VERIFICA SE É "Sem Data" =====
+        const dataEmissao = valores[idxData]?.replace(/"/g, '').trim() || '';
+        const isSemData = dataEmissao === 'Sem Data';
+        
+        // ===== SE FOR "Sem Data", cria um registro com dados mínimos =====
+        if (isSemData) {
+            // Extrai valor total
+            let valorTotal = 0;
+            if (valores[idxValorTotal]) {
+                valorTotal = parseFloat(valores[idxValorTotal].replace(/["']/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.'));
+                if (isNaN(valorTotal)) valorTotal = 0;
+            }
+            
+            // Extrai número de parcelas
+            let totalParcelas = 0;
+            if (valores[idxParcelas]) {
+                const match = valores[idxParcelas].match(/(\d+)x/);
+                if (match) totalParcelas = parseInt(match[1]);
+            }
+            
+            pedidos.push({
+                pedido: pedidoId, 
+                dataEmissao: 'Sem Data',
+                notaFiscal: 'Sem NF',
+                valorTotal: valorTotal,
+                valorProdutos: 0,
+                valorRoyalties: 0,
+                valorPropaganda: 0,
+                totalParcelas: totalParcelas,
+                parcelasProdutoCount: 0,
+                parcelasRoyaltiesCount: 0,
+                parcelasPropagandaCount: 0,
+                parcelasProduto: [],
+                parcelasRoyalties: [],
+                parcelasPropaganda: [],
+                valorPendente: valorTotal, // Considera tudo pendente
+                totalmentePago: false,
+                emProcessamento: false,
+                isSemData: true // Flag para identificar
+            });
+            continue; // Pula o processamento normal
+        }
+        
+        // ===== PROCESSAMENTO NORMAL PARA PEDIDOS COM DATA =====
+        // ... (resto do código igual)
+        
+        let valorTotal = 0;
+        if (valores[idxValorTotal]) {
+            valorTotal = parseFloat(valores[idxValorTotal].replace(/["']/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.'));
+            if (isNaN(valorTotal)) valorTotal = 0;
+        }
+        
+        let valorProdutos = 0, valorRoyaltiesVal = 0, valorPropagandaVal = 0;
+        if (valores[idxValorProdutos]) {
+            valorProdutos = parseFloat(valores[idxValorProdutos].replace(/["']/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.'));
+            if (isNaN(valorProdutos)) valorProdutos = 0;
+        }
+        if (valores[idxRoyalties]) {
+            valorRoyaltiesVal = parseFloat(valores[idxRoyalties].replace(/["']/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.'));
+            if (isNaN(valorRoyaltiesVal)) valorRoyaltiesVal = 0;
+        }
+        if (valores[idxPropaganda]) {
+            valorPropagandaVal = parseFloat(valores[idxPropaganda].replace(/["']/g, '').replace('R$', '').replace(/\./g, '').replace(',', '.'));
+            if (isNaN(valorPropagandaVal)) valorPropagandaVal = 0;
+        }
+        
+        let totalParcelas = 0;
+        if (valores[idxParcelas]) {
+            const match = valores[idxParcelas].match(/(\d+)x/);
+            if (match) totalParcelas = parseInt(match[1]);
+        }
+        
+        const parcelasProduto = [], parcelasRoyalties = [], parcelasPropaganda = [];
+        let parcelasProdutoCount = 0, parcelasRoyaltiesCount = 0, parcelasPropagandaCount = 0;
+        
+        if (valores[idxProdutoParcelas]) {
+            const match = valores[idxProdutoParcelas].match(/(\d+)x/);
+            if (match) parcelasProdutoCount = parseInt(match[1]);
+        }
+        
+        for (let p = 0; p < produtoValores.length && p < parcelasProdutoCount; p++) {
+            const idxValor = produtoValores[p];
+            let codigoPix = '', codigoBarras = '';
+            
+            if (produtoPix[p] < valores.length) {
+                codigoPix = valores[produtoPix[p]]?.replace(/"/g, '').trim() || '';
+                if (codigoPix === 'Nenhum' || codigoPix === '') codigoPix = '';
+            }
+            if (produtoBarras[p] < valores.length) {
+                codigoBarras = valores[produtoBarras[p]]?.replace(/"/g, '').trim() || '';
+                if (codigoBarras === 'Nenhum' || codigoBarras === '') codigoBarras = '';
+            }
+            
+            if (idxValor < valores.length && valores[idxValor] && valores[idxValor] !== 'Nenhum') {
+                const info = extrairParcelaInfo(valores[idxValor]);
+                if (info) {
+                    parcelasProduto.push({ num: p + 1, valor: info.valor, vencimento: info.vencimento, status: info.status, codigoPix: codigoPix, codigoBarras: codigoBarras });
+                }
+            }
+        }
+        
+        if (valores[idxRoyaltiesParcelas]) {
+            const match = valores[idxRoyaltiesParcelas].match(/(\d+)x/);
+            if (match) parcelasRoyaltiesCount = parseInt(match[1]);
+        }
+        
+        for (let p = 0; p < royaltiesValores.length && p < parcelasRoyaltiesCount; p++) {
+            const idxValor = royaltiesValores[p];
+            let codigoBarras = '';
+            
+            if (royaltiesBarras[p] < valores.length) {
+                codigoBarras = valores[royaltiesBarras[p]]?.replace(/"/g, '').trim() || '';
+                if (codigoBarras === 'Nenhum' || codigoBarras === '') codigoBarras = '';
+            }
+            
+            if (idxValor < valores.length && valores[idxValor] && valores[idxValor] !== 'Nenhum') {
+                const info = extrairParcelaInfo(valores[idxValor]);
+                if (info) {
+                    parcelasRoyalties.push({ num: p + 1, valor: info.valor, vencimento: info.vencimento, status: info.status, codigoPix: '', codigoBarras: codigoBarras });
+                }
+            }
+        }
+        
+        if (valores[idxPropagandaParcelas]) {
+            const match = valores[idxPropagandaParcelas].match(/(\d+)x/);
+            if (match) parcelasPropagandaCount = parseInt(match[1]);
+        }
+        
+        for (let p = 0; p < propagandaValores.length && p < parcelasPropagandaCount; p++) {
+            const idxValor = propagandaValores[p];
+            let codigoBarras = '';
+            
+            if (propagandaBarras[p] < valores.length) {
+                codigoBarras = valores[propagandaBarras[p]]?.replace(/"/g, '').trim() || '';
+                if (codigoBarras === 'Nenhum' || codigoBarras === '') codigoBarras = '';
+            }
+            
+            if (idxValor < valores.length && valores[idxValor] && valores[idxValor] !== 'Nenhum') {
+                const info = extrairParcelaInfo(valores[idxValor]);
+                if (info) {
+                    parcelasPropaganda.push({ num: p + 1, valor: info.valor, vencimento: info.vencimento, status: info.status, codigoPix: '', codigoBarras: codigoBarras });
+                }
+            }
+        }
+        
+        let valorPendente = 0;
+        [...parcelasProduto, ...parcelasRoyalties, ...parcelasPropaganda].forEach(p => {
+            if (p.status !== 'Pagos') valorPendente += p.valor;
+        });
+        
+        let dataEmissaoFinal = dataEmissao;
+        if (dataEmissaoFinal) {
+            const partes = dataEmissaoFinal.split('/');
+            if (partes.length === 3) dataEmissaoFinal = `${partes[2]}-${partes[1]}-${partes[0]}`;
+        }
+        
+        pedidos.push({
+            pedido: pedidoId, 
+            dataEmissao: dataEmissaoFinal,
+            notaFiscal: valores[idxNF]?.replace(/"/g, '').trim() || 'N/A',
+            valorTotal: valorTotal,
+            valorProdutos: valorProdutos,
+            valorRoyalties: valorRoyaltiesVal,
+            valorPropaganda: valorPropagandaVal,
+            totalParcelas: totalParcelas,
+            parcelasProdutoCount: parcelasProdutoCount,
+            parcelasRoyaltiesCount: parcelasRoyaltiesCount,
+            parcelasPropagandaCount: parcelasPropagandaCount,
+            parcelasProduto: parcelasProduto,
+            parcelasRoyalties: parcelasRoyalties,
+            parcelasPropaganda: parcelasPropaganda,
+            valorPendente: valorPendente,
+            totalmentePago: valorPendente === 0,
+            emProcessamento: false,
+            isSemData: false
+        });
+    }
+    
+    return pedidos;
+}
+
+
+    // ========== FORMATAR ==========
+    function formatarDataBR(iso) {
+        if (!iso) return '';
+        if (iso === 'Sem Data') return 'Sem Data';
+        const p = iso.split('-');
+        if (p.length === 3) {
+            return `${p[2]}/${p[1]}/${p[0]}`;
+        }
+        return iso;
+    }
+
+    function copiarTexto(texto) {
+        if (!texto || texto === 'Nenhum' || texto === '') {
+            alert('⚠️ Nenhum código disponível para copiar.');
+            return;
+        }
+        navigator.clipboard.writeText(texto).then(() => {
+            alert('✅ Código copiado para a área de transferência!');
+        }).catch(() => {
+            const textarea = document.createElement('textarea');
+            textarea.value = texto;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('✅ Código copiado!');
+        });
+    }
+
+    // ========== RENDERIZAR PARCELAS ==========
+    function formatarParcelasHTML(parcelas, titulo, tipo, pedidoId) {
+        if (!parcelas || parcelas.length === 0) {
+            return `<div class="parcela-tipo"><h4>${titulo}</h4><p style="color:#999;">Nenhuma parcela</p></div>`;
+        }
+        
+        let html = `<div class="parcela-tipo"><h4>${titulo} (${parcelas.length}x)</h4>`;
+        parcelas.forEach(p => {
+            let statusClass = '', statusText = '';
+            if (p.status === 'Pagos') { statusClass = 'status-pagos'; statusText = 'Pago'; }
+            else if (p.status === 'A vencer') { statusClass = 'status-a-vencer'; statusText = 'A vencer'; }
+            else { statusClass = 'status-em-atraso'; statusText = 'Em atraso'; }
+            
+            const pagoManual = (p.status === 'Pagos') || isPago(pedidoId, p.num, tipo);
+            const classePaga = pagoManual ? 'parcela-paga' : '';
+            const checked = pagoManual ? 'checked' : '';
+            const labelClass = pagoManual ? 'pago' : 'nao-pago';
+            const labelText = pagoManual ? '✅ Pago' : '⏳ Pendente';
+            
+            html += `<div class="parcela-item ${classePaga}">
+                        <strong>Parcela ${p.num.toString().padStart(2, '0')}</strong><br>
+                        Valor: ${formatarMoedaBR(p.valor)}<br>
+                        Vencimento: ${p.vencimento}<br>
+                        <span class="${statusClass}">${statusText}</span>`;
+            
+            if (tipo === 'produto') {
+                html += `<div class="codigos-container">`;
+                if (p.codigoPix) html += `<button class="btn-copiar btn-pix" onclick="copiarTexto('${p.codigoPix.replace(/'/g, "\\'")}')">PIX</button>`;
+                if (p.codigoBarras) html += `<button class="btn-copiar btn-barras" onclick="copiarTexto('${p.codigoBarras.replace(/'/g, "\\'")}')">Cód. Barras</button>`;
+                html += `</div>`;
+            }
+            
+            if (tipo === 'royalties' || tipo === 'propaganda') {
+                if (p.codigoBarras) {
+                    html += `<div class="codigos-container"><button class="btn-copiar btn-barras" onclick="copiarTexto('${p.codigoBarras.replace(/'/g, "\\'")}')">Cód. Barras</button></div>`;
+                }
+            }
+            
+            const chave = `${pedidoId}_${p.num}_${tipo}`;
+            
+            html += `<div class="codigos-container" style="margin-top: 6px;">
+                        <label class="pagamento-checkbox ${labelClass}" onclick="event.stopPropagation();">
+                            <input type="checkbox" data-id="${chave}" ${checked} onchange="handlePagamentoChange('${pedidoId}', ${p.num}, '${tipo}', this.checked)">
+                            <span>${labelText}</span>
+                        </label>
+                    </div>`;
+            
+            html += `</div>`;
+        });
+        html += `</div>`;
+        return html;
+    }
+
+    // ========== HANDLE PAGAMENTO ==========
+    async function handlePagamentoChange(pedidoId, parcelaId, tipo, pago) {
+        const chave = `${pedidoId}_${parcelaId}_${tipo}`;
+        const checkbox = document.querySelector(`input[data-id="${chave}"]`);
+        if (checkbox) {
+            const label = checkbox.closest('.pagamento-checkbox');
+            const span = label.querySelector('span');
+            if (pago) {
+                label.classList.add('pago');
+                label.classList.remove('nao-pago');
+                span.textContent = '✅ Pago';
+            } else {
+                label.classList.add('nao-pago');
+                label.classList.remove('pago');
+                span.textContent = '⏳ Pendente';
+            }
+            const parcelaItem = checkbox.closest('.parcela-item');
+            if (parcelaItem) {
+                if (pago) parcelaItem.classList.add('pago');
+                else parcelaItem.classList.remove('pago');
+            }
+        }
+        
+        const salvo = await salvarPagamentoBackend(pedidoId, parcelaId, tipo, pago);
+        const statusMsg = document.getElementById('statusSalvo');
+        if (statusMsg) {
+            if (salvo) {
+                statusMsg.textContent = '✅ Pagamento salvo no servidor!';
+                statusMsg.style.color = '#28a745';
+            } else {
+                statusMsg.textContent = '⚠️ Salvo localmente (offline)';
+                statusMsg.style.color = '#e67e22';
+            }
+            setTimeout(() => { statusMsg.textContent = ''; }, 3000);
+        }
+        
+        // Re-renderizar os boletos para atualizar os totais
+        if (modoVisualizacao === 'boletos') {
+            // Verificar qual submenu está ativo
+            const activeSubmenu = document.querySelector('.btn-submenu.active');
+            if (activeSubmenu) {
+                const text = activeSubmenu.textContent.trim();
+                if (text.includes('semana')) {
+                    mostrarBoletosSemana();
+                } else if (text.includes('mês')) {
+                    mostrarBoletosMes();
+                } else if (text.includes('Atrasados')) {
+                    mostrarBoletosAtrasados();
+                }
+            }
+        }
+    }
+
+   function renderizarTabela() {
+    const busca = document.getElementById('searchInput').value.toLowerCase();
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    const filtro = document.getElementById('statusFilter').value;
+    
+    let filtrados = pedidosData.filter(p => {
+        if (p.isSemData) {
+            if (busca && !p.pedido.includes(busca)) return false;
+            return true;
+        }
+        
+        if (p.emProcessamento) {
+            if (busca && !p.pedido.includes(busca)) return false;
+            return true;
+        }
+        
+        if (busca && !p.pedido.includes(busca) && !p.notaFiscal.includes(busca)) return false;
+        if (start && p.dataEmissao < start) return false;
+        if (end && p.dataEmissao > end) return false;
+        if (filtro === 'pendente' && p.totalmentePago) return false;
+        if (filtro === 'pago' && !p.totalmentePago) return false;
+        return true;
+    });
+    
+    // ===== MANTENHA A ORDEM ORIGINAL =====
+    // Os pedidos já estão na ordem correta do CSV (mais recentes primeiro)
+    
+    pedidosFiltrados = filtrados;
+    
+    // ===== CALCULA O PERÍODO =====
+    let periodoTexto = '';
+    const pedidosComData = filtrados.filter(p => !p.isSemData && !p.emProcessamento && p.dataEmissao && p.dataEmissao !== 'Sem Data');
+    
+    if (pedidosComData.length > 0) {
+        // Encontra a data mais antiga e mais recente
+        let dataMaisAntiga = null;
+        let dataMaisRecente = null;
+        
+        pedidosComData.forEach(p => {
+            const data = new Date(p.dataEmissao);
+            if (!isNaN(data)) {
+                if (!dataMaisAntiga || data < dataMaisAntiga) {
+                    dataMaisAntiga = data;
+                }
+                if (!dataMaisRecente || data > dataMaisRecente) {
+                    dataMaisRecente = data;
+                }
+            }
+        });
+        
+        if (dataMaisAntiga && dataMaisRecente) {
+            const meses = {
+                '01': 'JAN', '02': 'FEV', '03': 'MAR', '04': 'ABR',
+                '05': 'MAI', '06': 'JUN', '07': 'JUL', '08': 'AGO',
+                '09': 'SET', '10': 'OUT', '11': 'NOV', '12': 'DEZ'
+            };
+            
+            const mesAnt = String(dataMaisAntiga.getMonth() + 1).padStart(2, '0');
+            const anoAnt = dataMaisAntiga.getFullYear();
+            const mesRec = String(dataMaisRecente.getMonth() + 1).padStart(2, '0');
+            const anoRec = dataMaisRecente.getFullYear();
+            
+            const mesAntNome = meses[mesAnt] || mesAnt;
+            const mesRecNome = meses[mesRec] || mesRec;
+            
+            periodoTexto = `${mesAntNome} ${mesAnt}/${anoAnt} - ${mesRecNome} ${mesRec}/${anoRec}`;
+        }
+    }
+    
+    const stats = calcularTotais(filtrados.filter(p => !p.emProcessamento && !p.isSemData));
+    let statsSemData = { totalPendente: 0, totalPago: 0, totalGeral: 0 };
+    filtrados.forEach(p => {
+        if (p.isSemData) {
+            statsSemData.totalPendente += p.valorTotal;
+            statsSemData.totalGeral += p.valorTotal;
+        }
+    });
+    
+    // ===== ATUALIZA O TOTAL COUNT COM O PERÍODO =====
+    const totalCountElement = document.getElementById('totalCount');
+    if (periodoTexto) {
+        totalCountElement.innerHTML = `${filtrados.length} pedidos <span style="font-weight:400; font-size:12px; color:#667;">| Período: ${periodoTexto}</span>`;
+    } else {
+        totalCountElement.innerText = `${filtrados.length} pedidos`;
+    }
+    
+    document.getElementById('totalPendenteGeral').innerHTML = formatarMoedaBR(stats.totalPendente + statsSemData.totalPendente);
+    document.getElementById('totalPagoGeral').innerHTML = formatarMoedaBR(stats.totalPago);
+    document.getElementById('totalGeral').innerHTML = formatarMoedaBR(stats.totalGeral + statsSemData.totalGeral);
+    
+    const tbody = document.getElementById('tableBody');
+    if (filtrados.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px;">Nenhum pedido encontrado</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    filtrados.forEach(p => {
+        // ===== PEDIDO "SEM DATA" =====
+        if (p.isSemData) {
+            const statusText = `⚠️ Pendente: ${formatarMoedaBR(p.valorPendente)}`;
+            html += `<tr style="background: #fff8e1;">
+                        <td><span style="color: #f39c12;">📅</span> ${p.pedido}</td>
+                        <td style="color: #e67e22; font-style: italic;">Sem Data</td>
+                        <td>${p.notaFiscal}</td>
+                        <td>${formatarMoedaBR(p.valorTotal)}</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>${p.totalParcelas > 0 ? p.totalParcelas + 'x' : '-'}</td>
+                        <td>${formatarMoedaBR(p.valorPendente)}</td>
+                        <td class="status-a-vencer">${statusText}</td>
+                    </tr>
+                    <tr class="parcelas-detail">
+                        <td colspan="10">
+                            <div class="detail-card" style="border-left-color: #f39c12;">
+                                <strong>📋 Pedido ${p.pedido} - Sem dados completos</strong>
+                                <div style="color:#667; margin-top:10px;">
+                                    ⚠️ Este pedido está com a data "Sem Data" na planilha.<br>
+                                    Valor total: ${formatarMoedaBR(p.valorTotal)}<br>
+                                    Parcelas: ${p.totalParcelas}x<br>
+                                    Status: Aguardando processamento completo
+                                </div>
+                            </div>
+                        </td>
+                    </tr>`;
+            return;
+        }
+        
+        // ===== PEDIDO EM PROCESSAMENTO =====
+        if (p.emProcessamento) {
+            html += `<tr style="background: #fff3cd; opacity: 0.85;">
+                        <td><span style="color: #f39c12;">⏳</span> ${p.pedido}</td>
+                        <td colspan="9" style="color: #856404; font-style: italic;">
+                            ⏳ Pedido em processamento - Aguardando dados completos
+                        </td>
+                    </tr>`;
+            return;
+        }
+        
+        // ===== PEDIDO NORMAL =====
+        const statsP = calcularTotais([p]);
+        const statusText = p.totalmentePago ? '✅ Totalmente Pago' : `⚠️ Pendente: ${formatarMoedaBR(statsP.totalPendente)}`;
+        const statusClass = p.totalmentePago ? 'status-pagos' : 'status-a-vencer';
+        
+        html += `<tr class="pedido-row" onclick="toggleDetalhes('${p.pedido}')">
+                    <td><span class="expand-icon">▶</span> ${p.pedido}</td>
+                    <td>${formatarDataBR(p.dataEmissao)}</td>
+                    <td>${p.notaFiscal}</td>
+                    <td>${formatarMoedaBR(p.valorTotal)}</td>
+                    <td>${formatarMoedaBR(p.valorProdutos)}</td>
+                    <td>${formatarMoedaBR(p.valorRoyalties)}</td>
+                    <td>${formatarMoedaBR(p.valorPropaganda)}</td>
+                    <td>${p.totalParcelas > 0 ? p.totalParcelas + 'x' : '-'}</td>
+                    <td>${formatarMoedaBR(statsP.totalPendente)}</td>
+                    <td class="${statusClass}">${statusText}</td>
+                </tr>
+                <tr id="detalhe-${p.pedido}" class="parcelas-detail">
+                    <td colspan="10">
+                        <div class="detail-card">
+                            <strong>📋 Detalhamento das Parcelas - Pedido ${p.pedido}</strong>
+                            <div style="font-size:12px; color:#667; margin-bottom:10px;">
+                                ✅ Marque o checkbox para confirmar o pagamento manualmente.
+                                <span id="statusSalvo" class="status-salvo"></span>
+                            </div>
+                            <div class="parcela-grid">
+                                ${formatarParcelasHTML(p.parcelasProduto, 'Produto', 'produto', p.pedido)}
+                                ${formatarParcelasHTML(p.parcelasRoyalties, 'Royalties', 'royalties', p.pedido)}
+                                ${formatarParcelasHTML(p.parcelasPropaganda, 'Propaganda', 'propaganda', p.pedido)}
+                            </div>
+                            <div style="margin-top:12px;">
+                                <button class="btn-exportar" onclick="exportarPagamentos()">📤 Exportar marcações</button>
+                                <button class="btn-salvar-local" onclick="limparPagamentos()" style="background:#dc3545;">🗑️ Limpar todas</button>
+                            </div>
+                            <small>Fonte: Google Sheets | ${new Date().toLocaleString('pt-BR')}</small>
+                        </div>
+                    </td>
+                </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+    // ========== FUNÇÕES AUXILIARES ==========
+    function toggleDetalhes(id) {
+        const row = document.getElementById(`detalhe-${id}`);
+        if (!row) return;
+        row.classList.toggle('show');
+        const icon = row.previousElementSibling.querySelector('.expand-icon');
+        if (icon) icon.innerHTML = row.classList.contains('show') ? '▼' : '▶';
+    }
+
+    function resetFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+        document.getElementById('statusFilter').value = '';
+        if (modoVisualizacao !== 'tabela') voltarTabelaOriginal();
+        else renderizarTabela();
+    }
+
+    function exportarPagamentos() {
+        const pagamentos = carregarPagamentosSalvos();
+        if (Object.keys(pagamentos).length === 0) { alert('Nenhum pagamento marcado ainda.'); return; }
+        const texto = JSON.stringify(pagamentos, null, 2);
+        const blob = new Blob([texto], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `pagamentos_${new Date().toISOString().slice(0,10)}.json`;
+        a.click(); URL.revokeObjectURL(url);
+        alert('✅ Arquivo exportado!');
+    }
+
+    function limparPagamentos() {
+        if (confirm('Tem certeza que deseja limpar TODAS as marcações de pagamento?')) {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem('pagamentos_backend');
+            pagamentosBackend = {};
+            renderizarTabela();
+            alert('🗑️ Todas as marcações foram removidas.');
+        }
+    }
+
+    // ========== EVENT LISTENERS ==========
+    document.getElementById('searchInput').addEventListener('input', renderizarTabela);
+    document.getElementById('startDate').addEventListener('change', renderizarTabela);
+    document.getElementById('endDate').addEventListener('change', renderizarTabela);
+    document.getElementById('statusFilter').addEventListener('change', renderizarTabela);
+
+
+
+
+
+
+
+
+    // ========== INICIAR ==========
+    carregarDados();
+</script>
+</body>
+</html>
