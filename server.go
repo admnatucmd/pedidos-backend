@@ -223,20 +223,43 @@ func getClientIP(r *http.Request) string {
 }
 
 func getDomain(r *http.Request) string {
-	host := r.Host
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
-	}
-
-	if host == "localhost" || host == "127.0.0.1" {
-		return ""
-	}
-
-	if strings.HasSuffix(host, ".gtgo.com.br") {
-		return host
-	}
-
-	return host
+    // ===== USA O DOMÍNIO DA REQUISIÇÃO (FRONTEND) =====
+    // O header "Origin" contém o domínio do frontend
+    origin := r.Header.Get("Origin")
+    if origin != "" {
+        // Remove "https://" ou "http://"
+        origin = strings.TrimPrefix(origin, "https://")
+        origin = strings.TrimPrefix(origin, "http://")
+        
+        // Remove porta se existir
+        if strings.Contains(origin, ":") {
+            origin = strings.Split(origin, ":")[0]
+        }
+        
+        // Se for um subdomínio .gtgo.com.br, retorna ele
+        if strings.HasSuffix(origin, ".gtgo.com.br") {
+            return origin
+        }
+        
+        // Se for localhost, retorna vazio
+        if origin == "localhost" {
+            return ""
+        }
+        
+        return origin
+    }
+    
+    // Fallback: usa o host da requisição
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+    
+    if host == "localhost" || host == "127.0.0.1" {
+        return ""
+    }
+    
+    return host
 }
 
 func getLojaFromDomain(host string) string {
@@ -348,212 +371,222 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // ============================================================
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json")
 
-	if r.Method != "POST" {
-		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
-		return
-	}
+    if r.Method != "POST" {
+        http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+        return
+    }
 
-	var loginReq LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro ao processar requisição",
-		})
-		return
-	}
+    var loginReq LoginRequest
+    if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
+        w.WriteHeader(http.StatusBadRequest)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro ao processar requisição",
+        })
+        return
+    }
 
-	if loginReq.Username == "" || loginReq.Password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Usuário e senha são obrigatórios",
-		})
-		return
-	}
+    if loginReq.Username == "" || loginReq.Password == "" {
+        w.WriteHeader(http.StatusBadRequest)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Usuário e senha são obrigatórios",
+        })
+        return
+    }
 
-	user, exists := users[loginReq.Username]
-	if !exists {
-		log.Printf("❌ Tentativa de login com usuário inexistente: %s (IP: %s)", loginReq.Username, getClientIP(r))
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Usuário ou senha incorretos",
-		})
-		return
-	}
+    user, exists := users[loginReq.Username]
+    if !exists {
+        log.Printf("❌ Tentativa de login com usuário inexistente: %s (IP: %s)", loginReq.Username, getClientIP(r))
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Usuário ou senha incorretos",
+        })
+        return
+    }
 
-	if !checkPasswordHash(loginReq.Password, user.Password) {
-		log.Printf("❌ Tentativa de login com senha incorreta: %s (IP: %s)", loginReq.Username, getClientIP(r))
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Usuário ou senha incorretos",
-		})
-		return
-	}
+    if !checkPasswordHash(loginReq.Password, user.Password) {
+        log.Printf("❌ Tentativa de login com senha incorreta: %s (IP: %s)", loginReq.Username, getClientIP(r))
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Usuário ou senha incorretos",
+        })
+        return
+    }
 
-	// ===== VALIDAR SE O USUÁRIO PERTENCE AO SUBDOMÍNIO =====
-	host := r.Host
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
-	}
+    // ===== VALIDAR SE O USUÁRIO PERTENCE AO SUBDOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
 
-	lojaEsperada := getLojaFromDomain(host)
-	if lojaEsperada != "" && user.Loja != lojaEsperada {
-		log.Printf("🚫 Usuário %s tentou logar no domínio errado: %s (esperado: %s)", user.Username, host, lojaEsperada)
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Este usuário não pertence a este domínio",
-		})
-		return
-	}
+    lojaEsperada := getLojaFromDomain(host)
+    if lojaEsperada != "" && user.Loja != lojaEsperada {
+        log.Printf("🚫 Usuário %s tentou logar no domínio errado: %s (esperado: %s)", user.Username, host, lojaEsperada)
+        w.WriteHeader(http.StatusForbidden)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Este usuário não pertence a este domínio",
+        })
+        return
+    }
 
-	session, err := store.Get(r, "session-pedidos872")
-	if err != nil {
-		log.Printf("❌ Erro ao obter sessão: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro interno do servidor",
-		})
-		return
-	}
+    session, err := store.Get(r, "session-pedidos872")
+    if err != nil {
+        log.Printf("❌ Erro ao obter sessão: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro interno do servidor",
+        })
+        return
+    }
 
-	session.Values["authenticated"] = true
-	session.Values["username"] = user.Username
-	session.Values["role"] = user.Role
-	session.Values["loja"] = user.Loja
+    session.Values["authenticated"] = true
+    session.Values["username"] = user.Username
+    session.Values["role"] = user.Role
+    session.Values["loja"] = user.Loja
 
-	// ===== DEFINIR DOMAIN ESPECÍFICO DO COOKIE =====
-	domain := getDomain(r)
-	session.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   28800,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-		Domain:   domain,
-	}
+    // ===== DEFINIR DOMAIN = DOMÍNIO DO FRONTEND (ORIGIN) =====
+    domain := getDomain(r)
+    log.Printf("🔐 Domain do cookie: %s", domain)
 
-	if err := session.Save(r, w); err != nil {
-		log.Printf("❌ Erro ao salvar sessão: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro ao criar sessão",
-		})
-		return
-	}
+    session.Options = &sessions.Options{
+        Path:     "/",
+        MaxAge:   28800,
+        HttpOnly: true,
+        Secure:   true,
+        SameSite: http.SameSiteLaxMode,
+    }
+    
+    // Só define Domain se não for vazio e não for o backend (onrender.com)
+    if domain != "" && !strings.Contains(domain, "onrender.com") {
+        session.Options.Domain = domain
+    }
 
-	log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s, Domain: %s)", user.Username, user.Loja, getClientIP(r), domain)
+    if err := session.Save(r, w); err != nil {
+        log.Printf("❌ Erro ao salvar sessão: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro ao criar sessão",
+        })
+        return
+    }
 
-	json.NewEncoder(w).Encode(AuthResponse{
-		Success: true,
-		Message: "Login realizado com sucesso",
-		User:    user.Username,
-		Loja:    user.Loja,
-	})
+    log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s, Domain: %s)", user.Username, user.Loja, getClientIP(r), domain)
+
+    json.NewEncoder(w).Encode(AuthResponse{
+        Success: true,
+        Message: "Login realizado com sucesso",
+        User:    user.Username,
+        Loja:    user.Loja,
+    })
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json")
 
-	session, err := store.Get(r, "session-pedidos872")
-	if err != nil {
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro ao obter sessão",
-		})
-		return
-	}
+    session, err := store.Get(r, "session-pedidos872")
+    if err != nil {
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro ao obter sessão",
+        })
+        return
+    }
 
-	// ===== LIMPAR O COOKIE COM O DOMÍNIO CORRETO =====
-	domain := getDomain(r)
-	session.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-		Domain:   domain,
-	}
+    // ===== DOMAIN = DOMÍNIO DO FRONTEND (ORIGIN) =====
+    domain := getDomain(r)
 
-	session.Values["authenticated"] = false
-	session.Values["username"] = ""
-	session.Values["role"] = ""
-	session.Values["loja"] = ""
+    session.Options = &sessions.Options{
+        Path:     "/",
+        MaxAge:   -1,
+        HttpOnly: true,
+        Secure:   true,
+        SameSite: http.SameSiteLaxMode,
+    }
+    
+    if domain != "" && !strings.Contains(domain, "onrender.com") {
+        session.Options.Domain = domain
+    }
 
-	if err := session.Save(r, w); err != nil {
-		log.Printf("❌ Erro ao salvar sessão no logout: %v", err)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro ao fazer logout",
-		})
-		return
-	}
+    session.Values["authenticated"] = false
+    session.Values["username"] = ""
+    session.Values["role"] = ""
+    session.Values["loja"] = ""
 
-	log.Printf("✅ Logout realizado - Domain: %s", domain)
+    if err := session.Save(r, w); err != nil {
+        log.Printf("❌ Erro ao salvar sessão no logout: %v", err)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro ao fazer logout",
+        })
+        return
+    }
 
-	json.NewEncoder(w).Encode(AuthResponse{
-		Success: true,
-		Message: "Logout realizado com sucesso",
-	})
+    log.Printf("✅ Logout realizado - Domain: %s", domain)
+
+    json.NewEncoder(w).Encode(AuthResponse{
+        Success: true,
+        Message: "Logout realizado com sucesso",
+    })
 }
 
 func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json")
 
-	session, err := store.Get(r, "session-pedidos872")
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Erro de sessão",
-		})
-		return
-	}
+    session, err := store.Get(r, "session-pedidos872")
+    if err != nil {
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Erro de sessão",
+        })
+        return
+    }
 
-	auth, ok := session.Values["authenticated"].(bool)
-	if !ok || !auth {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(AuthResponse{
-			Success: false,
-			Message: "Não autenticado",
-		})
-		return
-	}
+    auth, ok := session.Values["authenticated"].(bool)
+    if !ok || !auth {
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Não autenticado",
+        })
+        return
+    }
 
-	username, _ := session.Values["username"].(string)
-	loja, _ := session.Values["loja"].(string)
+    username, _ := session.Values["username"].(string)
+    loja, _ := session.Values["loja"].(string)
 
-	// ===== VALIDAR SE A LOJA DA SESSÃO CORRESPONDE AO DOMÍNIO =====
-	host := r.Host
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
-	}
+    // ===== VALIDAR SE A LOJA DA SESSÃO CORRESPONDE AO DOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
 
-	if strings.HasSuffix(host, ".gtgo.com.br") {
-		lojaEsperada := getLojaFromDomain(host)
-		if lojaEsperada != "" && loja != lojaEsperada {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(AuthResponse{
-				Success: false,
-				Message: "Sessão inválida para este domínio",
-			})
-			return
-		}
-	}
+    if strings.HasSuffix(host, ".gtgo.com.br") {
+        lojaEsperada := getLojaFromDomain(host)
+        if lojaEsperada != "" && loja != lojaEsperada {
+            w.WriteHeader(http.StatusUnauthorized)
+            json.NewEncoder(w).Encode(AuthResponse{
+                Success: false,
+                Message: "Sessão inválida para este domínio",
+            })
+            return
+        }
+    }
 
-	json.NewEncoder(w).Encode(AuthResponse{
-		Success: true,
-		Message: "Autenticado",
-		User:    username,
-		Loja:    loja,
-	})
+    json.NewEncoder(w).Encode(AuthResponse{
+        Success: true,
+        Message: "Autenticado",
+        User:    username,
+        Loja:    loja,
+    })
 }
 
 // ============================================================
