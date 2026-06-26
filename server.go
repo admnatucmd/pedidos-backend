@@ -12,6 +12,7 @@ import (
 	"net"
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/option"
 )
@@ -525,7 +526,6 @@ func handleSalvarPagamento(w http.ResponseWriter, r *http.Request) {
 // ============================================================
 
 func buscarPagamentos(loja string) ([]Pagamento, error) {
-	ctx := context.Background()
 	srv, err := getSheetsService(loja)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar cliente Google Sheets: %w", err)
@@ -584,7 +584,6 @@ func buscarPagamentos(loja string) ([]Pagamento, error) {
 }
 
 func salvarPagamento(loja string, pag Pagamento) error {
-	ctx := context.Background()
 	srv, err := getSheetsService(loja)
 	if err != nil {
 		return fmt.Errorf("erro ao criar cliente Google Sheets: %w", err)
