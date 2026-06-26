@@ -132,18 +132,20 @@ func generateSecretKey() string {
 }
 
 func initSessionStore() {
-	secretKey := generateSecretKey()
-	store = sessions.NewCookieStore([]byte(secretKey))
+    secretKey := generateSecretKey()
+    store = sessions.NewCookieStore([]byte(secretKey))
 
-	store.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   28800,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	}
+    // ===== CONFIGURAÇÃO SIMPLES - SEM FRESCURA =====
+    store.Options = &sessions.Options{
+        Path:     "/",
+        MaxAge:   28800,
+        HttpOnly: true,
+        Secure:   false,
+        SameSite: http.SameSiteLaxMode,
+        Domain:   "",
+    }
 
-	log.Printf("🔐 Session Store configurado")
+    log.Printf("🔐 Session Store configurado")
 }
 
 // ============================================================
@@ -223,43 +225,10 @@ func getClientIP(r *http.Request) string {
 }
 
 func getDomain(r *http.Request) string {
-    // ===== USA O DOMÍNIO DA REQUISIÇÃO (FRONTEND) =====
-    // O header "Origin" contém o domínio do frontend
-    origin := r.Header.Get("Origin")
-    if origin != "" {
-        // Remove "https://" ou "http://"
-        origin = strings.TrimPrefix(origin, "https://")
-        origin = strings.TrimPrefix(origin, "http://")
-        
-        // Remove porta se existir
-        if strings.Contains(origin, ":") {
-            origin = strings.Split(origin, ":")[0]
-        }
-        
-        // Se for um subdomínio .gtgo.com.br, retorna ele
-        if strings.HasSuffix(origin, ".gtgo.com.br") {
-            return origin
-        }
-        
-        // Se for localhost, retorna vazio
-        if origin == "localhost" {
-            return ""
-        }
-        
-        return origin
-    }
-    
-    // Fallback: usa o host da requisição
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
-    }
-    
-    if host == "localhost" || host == "127.0.0.1" {
-        return ""
-    }
-    
-    return host
+    // ===== NUNCA DEFINE DOMAIN =====
+    // O navegador usa o domínio atual automaticamente
+    // Isso isola os cookies por subdomínio
+    return ""
 }
 
 func getLojaFromDomain(host string) string {
@@ -418,23 +387,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // ===== VALIDAR SE O USUÁRIO PERTENCE AO SUBDOMÍNIO =====
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
-    }
-
-    lojaEsperada := getLojaFromDomain(host)
-    if lojaEsperada != "" && user.Loja != lojaEsperada {
-        log.Printf("🚫 Usuário %s tentou logar no domínio errado: %s (esperado: %s)", user.Username, host, lojaEsperada)
-        w.WriteHeader(http.StatusForbidden)
-        json.NewEncoder(w).Encode(AuthResponse{
-            Success: false,
-            Message: "Este usuário não pertence a este domínio",
-        })
-        return
-    }
-
     session, err := store.Get(r, "session-pedidos872")
     if err != nil {
         log.Printf("❌ Erro ao obter sessão: %v", err)
@@ -451,21 +403,14 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     session.Values["role"] = user.Role
     session.Values["loja"] = user.Loja
 
-    // ===== DEFINIR DOMAIN = DOMÍNIO DO FRONTEND (ORIGIN) =====
-    domain := getDomain(r)
-    log.Printf("🔐 Domain do cookie: %s", domain)
-
+    // ===== CONFIGURAÇÃO SIMPLES - SEM DOMAIN, SEM SEGURANÇA =====
     session.Options = &sessions.Options{
         Path:     "/",
-        MaxAge:   28800,
+        MaxAge:   28800, // 8 horas
         HttpOnly: true,
-        Secure:   true,
+        Secure:   false, // ← FALSE para funcionar em qualquer lugar
         SameSite: http.SameSiteLaxMode,
-    }
-    
-    // Só define Domain se não for vazio e não for o backend (onrender.com)
-    if domain != "" && !strings.Contains(domain, "onrender.com") {
-        session.Options.Domain = domain
+        Domain:   "",    // ← VAZIO = navegador usa o domínio atual
     }
 
     if err := session.Save(r, w); err != nil {
@@ -478,7 +423,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s, Domain: %s)", user.Username, user.Loja, getClientIP(r), domain)
+    log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s)", user.Username, user.Loja, getClientIP(r))
 
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
@@ -487,6 +432,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         Loja:    user.Loja,
     })
 }
+
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
@@ -500,19 +446,14 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // ===== DOMAIN = DOMÍNIO DO FRONTEND (ORIGIN) =====
-    domain := getDomain(r)
-
+    // ===== LIMPAR COOKIE =====
     session.Options = &sessions.Options{
         Path:     "/",
         MaxAge:   -1,
         HttpOnly: true,
-        Secure:   true,
+        Secure:   false,
         SameSite: http.SameSiteLaxMode,
-    }
-    
-    if domain != "" && !strings.Contains(domain, "onrender.com") {
-        session.Options.Domain = domain
+        Domain:   "",
     }
 
     session.Values["authenticated"] = false
@@ -529,13 +470,14 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("✅ Logout realizado - Domain: %s", domain)
+    log.Printf("✅ Logout realizado")
 
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
         Message: "Logout realizado com sucesso",
     })
 }
+
 
 func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
@@ -563,24 +505,6 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
     username, _ := session.Values["username"].(string)
     loja, _ := session.Values["loja"].(string)
 
-    // ===== VALIDAR SE A LOJA DA SESSÃO CORRESPONDE AO DOMÍNIO =====
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
-    }
-
-    if strings.HasSuffix(host, ".gtgo.com.br") {
-        lojaEsperada := getLojaFromDomain(host)
-        if lojaEsperada != "" && loja != lojaEsperada {
-            w.WriteHeader(http.StatusUnauthorized)
-            json.NewEncoder(w).Encode(AuthResponse{
-                Success: false,
-                Message: "Sessão inválida para este domínio",
-            })
-            return
-        }
-    }
-
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
         Message: "Autenticado",
@@ -588,6 +512,7 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
         Loja:    loja,
     })
 }
+
 
 // ============================================================
 // HANDLER: BUSCAR DADOS DA PLANILHA VIA API
