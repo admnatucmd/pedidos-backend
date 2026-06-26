@@ -520,7 +520,7 @@ func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
 	log.Printf("📊 Planilha ID: %s", spreadsheetID)
 
 	// Busca todos os dados da planilha
-	readRange := "A:Z"
+	readRange := "A:BR"
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
 	if err != nil {
 		log.Printf("❌ Erro ao buscar dados da planilha %s: %v", spreadsheetID, err)
