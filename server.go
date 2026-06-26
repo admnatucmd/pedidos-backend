@@ -6,143 +6,513 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
-	"os"   
+	"net"
+	"github.com/gorilla/sessions"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/option"
 )
 
-// Estrutura para o pagamento
+// ============================================================
+// ESTRUTURAS DE AUTENTICAÇÃO
+// ============================================================
+
+type User struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+	Loja     string `json:"loja"`
+}
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AuthResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	User    string `json:"user,omitempty"`
+	Loja    string `json:"loja,omitempty"`
+}
+
 type Pagamento struct {
 	Pedido   string `json:"pedido"`
 	Parcela  int    `json:"parcela"`
-	Tipo     string `json:"tipo"`     // produto, royalties, propaganda
+	Tipo     string `json:"tipo"`
 	Pago     bool   `json:"pago"`
 	DataHora string `json:"dataHora"`
 }
 
-// Configuração da planilha
-const (
-	spreadsheetID = "1TAxNfLlG0hvUMHziMi2oMDeHt9AbKxamQOgZzefoYaI"
-	sheetName     = "Pagamentos"
-)
+// ============================================================
+// CONFIGURAÇÕES
+// ============================================================
 
-func main() {
-	// Servir arquivos estáticos
-	fs := http.FileServer(http.Dir("."))
-	http.Handle("/", fs)
+var store *sessions.CookieStore
 
-	// Endpoint para buscar pagamentos
-	http.HandleFunc("/api/pagamentos", corsMiddleware(handlePagamentos))
-	
-	// Endpoint para salvar pagamento
-	http.HandleFunc("/api/pagamento", corsMiddleware(handleSalvarPagamento))
-
-	// Endpoint para verificar status
-	http.HandleFunc("/api/status", corsMiddleware(handleStatus))
-
-	// ===== NOVO: Usar porta do Render =====
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"  // fallback para local
-	}
-
-	fmt.Printf("🚀 Servidor rodando em http://localhost:%s\n", port)
-	fmt.Println("📊 Conectado ao Google Sheets")
-	fmt.Println("📁 Servindo arquivos da pasta atual")
-	fmt.Println("Pressione Ctrl+C para parar")
-	
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+// ===== MAPA DE USUÁRIOS =====
+var users = map[string]User{
+	"pedidos872": {
+		Username: "pedidos872",
+		Password: hashPassword("capta872"),
+		Role:     "admin",
+		Loja:     "loja872sh",
+	},
+	// ADICIONAR MAIS LOJAS AQUI:
+	// "loja168": {
+	//     Username: "loja168",
+	//     Password: hashPassword("senha168"),
+	//     Role:     "admin",
+	//     Loja:     "loja168mh",
+	// },
 }
 
-// Middleware CORS
+// ===== MAPA DE PLANILHAS POR LOJA =====
+var spreadsheetMap = map[string]string{
+	"loja872sh": "1TAxNfLlG0hvUMHziMi2oMDeHt9AbKxamQOgZzefoYaI", // Planilha pedidos872
+	// "loja168mh": "1x4a-gJyjHVxNKBy0bsuAE40vpt5Y9O9f5xEEF7W-fcE", // Planilha loja168
+}
+
+// ===== MAPA DE CREDENCIAIS POR LOJA =====
+var credenciaisSheets = map[string]string{
+	"loja872sh": "CREDENTIALS_PEDIDOS872",
+	// "loja168mh": "CREDENTIALS_LOJA168",
+}
+
+// Cache dos serviços do Sheets
+var sheetsServices = make(map[string]*sheets.Service)
+
+// ============================================================
+// FUNÇÕES DE AUTENTICAÇÃO
+// ============================================================
+
+func hashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(hash)
+}
+
+func checkPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+func generateSecretKey() string {
+	key := os.Getenv("SESSION_SECRET")
+	if key == "" {
+		key = "pedidos872-session-secret-32-bytes-key!!"
+	}
+	if len(key) < 32 {
+		key = key + strings.Repeat("x", 32-len(key))
+	} else if len(key) > 32 {
+		key = key[:32]
+	}
+	return key
+}
+
+func initSessionStore() {
+	secretKey := generateSecretKey()
+	store = sessions.NewCookieStore([]byte(secretKey))
+	
+	store.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   28800,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+	}
+	
+	log.Printf("🔐 Session Store configurado")
+}
+
+// ============================================================
+// GOOGLE SHEETS - MULTI-LOJAS
+// ============================================================
+
+func getSheetsService(loja string) (*sheets.Service, error) {
+	if service, exists := sheetsServices[loja]; exists {
+		return service, nil
+	}
+	
+	envVarName, exists := credenciaisSheets[loja]
+	if !exists {
+		return nil, fmt.Errorf("credencial não configurada para loja: %s", loja)
+	}
+	
+	jsonCreds := os.Getenv(envVarName)
+	if jsonCreds == "" {
+		return nil, fmt.Errorf("credencial Google Sheets não encontrada para loja %s (variável: %s)", loja, envVarName)
+	}
+	
+	service, err := initSheetsServiceWithCreds(jsonCreds)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao inicializar serviço Sheets: %w", err)
+	}
+	
+	sheetsServices[loja] = service
+	log.Printf("✅ Serviço Sheets inicializado para loja: %s", loja)
+	return service, nil
+}
+
+func initSheetsServiceWithCreds(jsonCreds string) (*sheets.Service, error) {
+	ctx := context.Background()
+	jsonCreds = strings.TrimSpace(jsonCreds)
+	credsBytes := []byte(jsonCreds)
+	
+	config, err := google.JWTConfigFromJSON(credsBytes, sheets.SpreadsheetsScope)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar config JWT: %w", err)
+	}
+	
+	client := config.Client(ctx)
+	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar serviço Sheets: %w", err)
+	}
+	
+	return srv, nil
+}
+
+func getSpreadsheetID(loja string) string {
+	if id, exists := spreadsheetMap[loja]; exists {
+		return id
+	}
+	return ""
+}
+
+// ============================================================
+// FUNÇÕES DE AUTENTICAÇÃO - HANDLERS
+// ============================================================
+
+func getClientIP(r *http.Request) string {
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		ips := strings.Split(forwarded, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		return realIP
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// ============================================================
+// CORS MIDDLEWARE
+// ============================================================
+
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		
+		allowedOrigins := []string{
+			"https://pedidos872.gtgo.com.br",
+			"https://gtgo.com.br",
+			"https://www.gtgo.com.br",
+			"http://localhost:3000",
+			"http://localhost:8080",
+		}
+		
+		isAllowed := false
+		for _, allowed := range allowedOrigins {
+			if origin == allowed {
+				isAllowed = true
+				break
+			}
+		}
+		
+		if !isAllowed && strings.HasSuffix(origin, ".gtgo.com.br") {
+			isAllowed = true
+		}
+		
+		if isAllowed && origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "https://pedidos872.gtgo.com.br")
+		}
+		
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Origin")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Vary", "Origin")
 		
 		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		
 		next(w, r)
 	}
 }
 
-// Handler para verificar status
-func handleStatus(w http.ResponseWriter, r *http.Request) {
+// ============================================================
+// HANDLERS DE AUTENTICAÇÃO
+// ============================================================
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"time":   time.Now().Format("02/01/2006 15:04:05"),
-		"sheet":  spreadsheetID,
+	
+	if r.Method != "POST" {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var loginReq LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro ao processar requisição",
+		})
+		return
+	}
+	
+	if loginReq.Username == "" || loginReq.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Usuário e senha são obrigatórios",
+		})
+		return
+	}
+	
+	user, exists := users[loginReq.Username]
+	if !exists {
+		log.Printf("❌ Tentativa de login com usuário inexistente: %s (IP: %s)", loginReq.Username, getClientIP(r))
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Usuário ou senha incorretos",
+		})
+		return
+	}
+	
+	if !checkPasswordHash(loginReq.Password, user.Password) {
+		log.Printf("❌ Tentativa de login com senha incorreta: %s (IP: %s)", loginReq.Username, getClientIP(r))
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Usuário ou senha incorretos",
+		})
+		return
+	}
+	
+	session, err := store.Get(r, "session-pedidos872")
+	if err != nil {
+		log.Printf("❌ Erro ao obter sessão: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro interno do servidor",
+		})
+		return
+	}
+	
+	session.Values["authenticated"] = true
+	session.Values["username"] = user.Username
+	session.Values["role"] = user.Role
+	session.Values["loja"] = user.Loja
+	
+	session.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   28800,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+	}
+	
+	if err := session.Save(r, w); err != nil {
+		log.Printf("❌ Erro ao salvar sessão: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro ao criar sessão",
+		})
+		return
+	}
+	
+	log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s)", user.Username, user.Loja, getClientIP(r))
+	
+	json.NewEncoder(w).Encode(AuthResponse{
+		Success: true,
+		Message: "Login realizado com sucesso",
+		User:    user.Username,
+		Loja:    user.Loja,
 	})
 }
 
-// Handler para buscar pagamentos
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	session, err := store.Get(r, "session-pedidos872")
+	if err != nil {
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro ao obter sessão",
+		})
+		return
+	}
+	
+	session.Values["authenticated"] = false
+	session.Values["username"] = ""
+	session.Values["role"] = ""
+	session.Values["loja"] = ""
+	session.Options.MaxAge = -1
+	
+	if err := session.Save(r, w); err != nil {
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro ao fazer logout",
+		})
+		return
+	}
+	
+	json.NewEncoder(w).Encode(AuthResponse{
+		Success: true,
+		Message: "Logout realizado com sucesso",
+	})
+}
+
+func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	session, err := store.Get(r, "session-pedidos872")
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Erro de sessão",
+		})
+		return
+	}
+	
+	auth, ok := session.Values["authenticated"].(bool)
+	if !ok || !auth {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Não autenticado",
+		})
+		return
+	}
+	
+	username, _ := session.Values["username"].(string)
+	loja, _ := session.Values["loja"].(string)
+	
+	json.NewEncoder(w).Encode(AuthResponse{
+		Success: true,
+		Message: "Autenticado",
+		User:    username,
+		Loja:    loja,
+	})
+}
+
+// ============================================================
+// FUNÇÃO PARA EXTRAIR LOJA DO CONTEXTO
+// ============================================================
+
+func getLojaFromRequest(r *http.Request) string {
+	session, err := store.Get(r, "session-pedidos872")
+	if err != nil {
+		return ""
+	}
+	
+	if loja, ok := session.Values["loja"].(string); ok {
+		return loja
+	}
+	return ""
+}
+
+// ============================================================
+// FUNÇÃO DE AUTENTICAÇÃO - MIDDLEWARE
+// ============================================================
+
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, err := store.Get(r, "session-pedidos872")
+		if err != nil {
+			http.Error(w, "Erro de sessão", http.StatusInternalServerError)
+			return
+		}
+		
+		auth, ok := session.Values["authenticated"].(bool)
+		if !ok || !auth {
+			http.Error(w, "Não autorizado", http.StatusUnauthorized)
+			return
+		}
+		
+		next(w, r)
+	}
+}
+
+// ============================================================
+// HANDLERS DE PAGAMENTOS (COM MULTI-LOJA)
+// ============================================================
+
 func handlePagamentos(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
 		return
 	}
-
-	pagamentos, err := buscarPagamentos()
+	
+	loja := getLojaFromRequest(r)
+	if loja == "" {
+		http.Error(w, "Loja não identificada", http.StatusUnauthorized)
+		return
+	}
+	
+	pagamentos, err := buscarPagamentos(loja)
 	if err != nil {
-		log.Printf("Erro ao buscar pagamentos: %v", err)
-		// Retorna array vazio em caso de erro
+		log.Printf("Erro ao buscar pagamentos da loja %s: %v", loja, err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]Pagamento{})
 		return
 	}
-
+	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(pagamentos)
 }
 
-// Handler para salvar pagamento
 func handleSalvarPagamento(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
 		return
 	}
-
+	
+	loja := getLojaFromRequest(r)
+	if loja == "" {
+		http.Error(w, "Loja não identificada", http.StatusUnauthorized)
+		return
+	}
+	
 	var pag Pagamento
 	if err := json.NewDecoder(r.Body).Decode(&pag); err != nil {
 		http.Error(w, "Erro ao ler dados: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Validar dados
-	if pag.Pedido == "" {
-		http.Error(w, "Pedido é obrigatório", http.StatusBadRequest)
+	
+	if pag.Pedido == "" || pag.Parcela <= 0 || pag.Tipo == "" {
+		http.Error(w, "Dados inválidos", http.StatusBadRequest)
 		return
 	}
-	if pag.Parcela <= 0 {
-		http.Error(w, "Parcela inválida", http.StatusBadRequest)
-		return
-	}
-	if pag.Tipo == "" {
-		http.Error(w, "Tipo é obrigatório", http.StatusBadRequest)
-		return
-	}
-
+	
 	pag.DataHora = time.Now().Format("02/01/2006 15:04:05")
-
-	if err := salvarPagamento(pag); err != nil {
-		log.Printf("Erro ao salvar pagamento: %v", err)
-		
-		// Verificar se é erro de autenticação
-		if strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "credentials") {
-			http.Error(w, "Erro de autenticação: verifique o arquivo credentials.json", http.StatusInternalServerError)
-			return
-		}
-		
+	
+	if err := salvarPagamento(loja, pag); err != nil {
+		log.Printf("Erro ao salvar pagamento na loja %s: %v", loja, err)
 		http.Error(w, "Erro ao salvar: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
+	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
@@ -150,25 +520,31 @@ func handleSalvarPagamento(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Buscar pagamentos da planilha
-func buscarPagamentos() ([]Pagamento, error) {
+// ============================================================
+// FUNÇÕES DE ACESSO AO GOOGLE SHEETS
+// ============================================================
+
+func buscarPagamentos(loja string) ([]Pagamento, error) {
 	ctx := context.Background()
-	srv, err := getSheetsService(ctx)
+	srv, err := getSheetsService(loja)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar cliente Google Sheets: %w", err)
 	}
-
-	// Verificar se a aba existe
-	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, sheetName).Do()
+	
+	spreadsheetID := getSpreadsheetID(loja)
+	if spreadsheetID == "" {
+		return nil, fmt.Errorf("planilha não configurada para loja: %s", loja)
+	}
+	
+	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, "Pagamentos").Do()
 	if err != nil {
-		// Aba não existe, retorna vazio
-		log.Printf("Aba '%s' não encontrada, retornando vazio", sheetName)
+		log.Printf("Aba 'Pagamentos' não encontrada, retornando vazio")
 		return []Pagamento{}, nil
 	}
-
+	
 	var pagamentos []Pagamento
 	for i, row := range resp.Values {
-		if i == 0 { // pular cabeçalho
+		if i == 0 {
 			continue
 		}
 		if len(row) < 4 {
@@ -186,7 +562,6 @@ func buscarPagamentos() ([]Pagamento, error) {
 			dataHora = fmt.Sprintf("%v", row[4])
 		}
 		
-		// Converter parcela para int
 		parcela := 0
 		switch v := row[1].(type) {
 		case float64:
@@ -204,30 +579,30 @@ func buscarPagamentos() ([]Pagamento, error) {
 		})
 	}
 	
-	log.Printf("✅ %d pagamentos carregados da planilha", len(pagamentos))
+	log.Printf("✅ %d pagamentos carregados da loja %s", len(pagamentos), loja)
 	return pagamentos, nil
 }
 
-// Salvar pagamento na planilha
-func salvarPagamento(pag Pagamento) error {
+func salvarPagamento(loja string, pag Pagamento) error {
 	ctx := context.Background()
-	srv, err := getSheetsService(ctx)
+	srv, err := getSheetsService(loja)
 	if err != nil {
 		return fmt.Errorf("erro ao criar cliente Google Sheets: %w", err)
 	}
-
-	// Verificar se a aba existe, se não, criar
-	_, err = srv.Spreadsheets.Values.Get(spreadsheetID, sheetName).Do()
+	
+	spreadsheetID := getSpreadsheetID(loja)
+	if spreadsheetID == "" {
+		return fmt.Errorf("planilha não configurada para loja: %s", loja)
+	}
+	
+	_, err = srv.Spreadsheets.Values.Get(spreadsheetID, "Pagamentos").Do()
 	if err != nil {
-		log.Printf("Criando aba '%s'...", sheetName)
-		
-		// Criar aba
 		_, err = srv.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 			Requests: []*sheets.Request{
 				{
 					AddSheet: &sheets.AddSheetRequest{
 						Properties: &sheets.SheetProperties{
-							Title: sheetName,
+							Title: "Pagamentos",
 						},
 					},
 				},
@@ -237,8 +612,7 @@ func salvarPagamento(pag Pagamento) error {
 			return fmt.Errorf("erro ao criar aba: %w", err)
 		}
 		
-		// Adicionar cabeçalho
-		_, err = srv.Spreadsheets.Values.Update(spreadsheetID, sheetName+"!A1:E1", &sheets.ValueRange{
+		_, err = srv.Spreadsheets.Values.Update(spreadsheetID, "Pagamentos!A1:E1", &sheets.ValueRange{
 			Values: [][]interface{}{
 				{"Pedido", "Parcela", "Tipo", "Pago", "DataHora"},
 			},
@@ -246,19 +620,15 @@ func salvarPagamento(pag Pagamento) error {
 		if err != nil {
 			return fmt.Errorf("erro ao adicionar cabeçalho: %w", err)
 		}
-		
-		log.Printf("✅ Aba '%s' criada com cabeçalho", sheetName)
 	}
-
-	// Buscar dados existentes para atualizar ou inserir
-	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, sheetName).Do()
+	
+	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, "Pagamentos").Do()
 	if err != nil {
 		return fmt.Errorf("erro ao buscar dados existentes: %w", err)
 	}
-
-	// Procurar se já existe registro para este pedido+parcela+tipo
+	
 	for i, row := range resp.Values {
-		if i == 0 { // pular cabeçalho
+		if i == 0 {
 			continue
 		}
 		if len(row) >= 3 {
@@ -273,8 +643,7 @@ func salvarPagamento(pag Pagamento) error {
 			tipo := fmt.Sprintf("%v", row[2])
 			
 			if pedido == pag.Pedido && parcela == pag.Parcela && tipo == pag.Tipo {
-				// Atualizar existente
-				_, err = srv.Spreadsheets.Values.Update(spreadsheetID, fmt.Sprintf("%s!D%d:E%d", sheetName, i+1, i+1), &sheets.ValueRange{
+				_, err = srv.Spreadsheets.Values.Update(spreadsheetID, fmt.Sprintf("Pagamentos!D%d:E%d", i+1, i+1), &sheets.ValueRange{
 					Values: [][]interface{}{
 						{pag.Pago, pag.DataHora},
 					},
@@ -282,14 +651,13 @@ func salvarPagamento(pag Pagamento) error {
 				if err != nil {
 					return fmt.Errorf("erro ao atualizar registro: %w", err)
 				}
-				log.Printf("✅ Pagamento atualizado: %s - Parcela %d - %s", pag.Pedido, pag.Parcela, pag.Tipo)
+				log.Printf("✅ Pagamento atualizado na loja %s: %s - Parcela %d - %s", loja, pag.Pedido, pag.Parcela, pag.Tipo)
 				return nil
 			}
 		}
 	}
-
-	// Inserir novo registro
-	_, err = srv.Spreadsheets.Values.Append(spreadsheetID, sheetName+"!A:E", &sheets.ValueRange{
+	
+	_, err = srv.Spreadsheets.Values.Append(spreadsheetID, "Pagamentos!A:E", &sheets.ValueRange{
 		Values: [][]interface{}{
 			{pag.Pedido, pag.Parcela, pag.Tipo, pag.Pago, pag.DataHora},
 		},
@@ -298,18 +666,49 @@ func salvarPagamento(pag Pagamento) error {
 		return fmt.Errorf("erro ao inserir novo registro: %w", err)
 	}
 	
-	log.Printf("✅ Novo pagamento inserido: %s - Parcela %d - %s", pag.Pedido, pag.Parcela, pag.Tipo)
+	log.Printf("✅ Novo pagamento inserido na loja %s: %s - Parcela %d - %s", loja, pag.Pedido, pag.Parcela, pag.Tipo)
 	return nil
 }
 
-// Criar cliente do Google Sheets
-func getSheetsService(ctx context.Context) (*sheets.Service, error) {
-	// Tentar usar credenciais do arquivo
-	credsFile := "credentials.json"
-	
-	// Verificar se o arquivo existe
-	return sheets.NewService(ctx, option.WithCredentialsFile(credsFile))
+// ============================================================
+// HANDLER DE STATUS
+// ============================================================
 
-
+func handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "ok",
+		"time":   time.Now().Format("02/01/2006 15:04:05"),
+		"lojas":  len(users),
+	})
 }
 
+// ============================================================
+// MAIN
+// ============================================================
+
+func main() {
+	initSessionStore()
+	
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	
+	log.Printf("🚀 Servidor Multi-Lojas rodando na porta %s", port)
+	log.Printf("🏪 Lojas configuradas: %d", len(users))
+	for username := range users {
+		log.Printf("   ✅ %s", username)
+	}
+	
+	http.HandleFunc("/api/login", corsMiddleware(loginHandler))
+	http.HandleFunc("/api/logout", corsMiddleware(logoutHandler))
+	http.HandleFunc("/api/check-auth", corsMiddleware(checkAuthHandler))
+	http.HandleFunc("/api/status", corsMiddleware(handleStatus))
+	
+	http.HandleFunc("/api/pagamentos", corsMiddleware(authMiddleware(handlePagamentos)))
+	http.HandleFunc("/api/pagamento", corsMiddleware(authMiddleware(handleSalvarPagamento)))
+	
+	log.Printf("✅ Servidor pronto!")
+	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
