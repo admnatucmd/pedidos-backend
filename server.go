@@ -19,7 +19,7 @@ import (
 )
 
 // ============================================================
-// ESTRUTURAS DE AUTENTICAÇÃO
+// ESTRUTURAS
 // ============================================================
 
 type User struct {
@@ -35,11 +35,10 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	Success     bool   `json:"success"`
-	Message     string `json:"message"`
-	User        string `json:"user,omitempty"`
-	Loja        string `json:"loja,omitempty"`
-	PlanilhaURL string `json:"planilhaURL,omitempty"` // ← ADICIONADO
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	User    string `json:"user,omitempty"`
+	Loja    string `json:"loja,omitempty"`
 }
 
 type Pagamento struct {
@@ -48,6 +47,13 @@ type Pagamento struct {
 	Tipo     string `json:"tipo"`
 	Pago     bool   `json:"pago"`
 	DataHora string `json:"dataHora"`
+}
+
+type SheetDataResponse struct {
+	Success bool            `json:"success"`
+	Data    [][]interface{} `json:"data"`
+	Loja    string          `json:"loja"`
+	Error   string          `json:"error,omitempty"`
 }
 
 // ============================================================
@@ -196,7 +202,7 @@ func getSpreadsheetID(loja string) string {
 }
 
 // ============================================================
-// FUNÇÕES DE AUTENTICAÇÃO - HANDLERS
+// FUNÇÕES AUXILIARES
 // ============================================================
 
 func getClientIP(r *http.Request) string {
@@ -214,6 +220,18 @@ func getClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func getLojaFromRequest(r *http.Request) string {
+	session, err := store.Get(r, "session-pedidos872")
+	if err != nil {
+		return ""
+	}
+
+	if loja, ok := session.Values["loja"].(string); ok {
+		return loja
+	}
+	return ""
 }
 
 // ============================================================
@@ -259,6 +277,28 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// ============================================================
+// MIDDLEWARE DE AUTENTICAÇÃO
+// ============================================================
+
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, err := store.Get(r, "session-pedidos872")
+		if err != nil {
+			http.Error(w, "Erro de sessão", http.StatusInternalServerError)
+			return
+		}
+
+		auth, ok := session.Values["authenticated"].(bool)
+		if !ok || !auth {
+			http.Error(w, "Não autorizado", http.StatusUnauthorized)
 			return
 		}
 
@@ -352,19 +392,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ===== MONTAR URL DA PLANILHA =====
-	spreadsheetID := getSpreadsheetID(user.Loja)
-	planilhaURL := fmt.Sprintf("https://docs.google.com/spreadsheets/d/e/%s/pub?gid=0&single=true&output=csv", spreadsheetID)
-
 	log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s)", user.Username, user.Loja, getClientIP(r))
-	log.Printf("📊 Planilha URL: %s", planilhaURL)
 
 	json.NewEncoder(w).Encode(AuthResponse{
-		Success:     true,
-		Message:     "Login realizado com sucesso",
-		User:        user.Username,
-		Loja:        user.Loja,
-		PlanilhaURL: planilhaURL, // ← ENVIA A URL PARA O FRONTEND
+		Success: true,
+		Message: "Login realizado com sucesso",
+		User:    user.Username,
+		Loja:    user.Loja,
 	})
 }
 
@@ -426,59 +460,90 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
 	username, _ := session.Values["username"].(string)
 	loja, _ := session.Values["loja"].(string)
 
-	// ===== MONTAR URL DA PLANILHA =====
-	spreadsheetID := getSpreadsheetID(loja)
-	planilhaURL := fmt.Sprintf("https://docs.google.com/spreadsheets/d/e/%s/pub?gid=0&single=true&output=csv", spreadsheetID)
-
 	json.NewEncoder(w).Encode(AuthResponse{
-		Success:     true,
-		Message:     "Autenticado",
-		User:        username,
-		Loja:        loja,
-		PlanilhaURL: planilhaURL, // ← ENVIA A URL PARA O FRONTEND
+		Success: true,
+		Message: "Autenticado",
+		User:    username,
+		Loja:    loja,
 	})
 }
 
 // ============================================================
-// FUNÇÃO PARA EXTRAIR LOJA DA SESSÃO
+// HANDLER: BUSCAR DADOS DA PLANILHA VIA API
 // ============================================================
 
-func getLojaFromRequest(r *http.Request) string {
-	session, err := store.Get(r, "session-pedidos872")
+func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "GET" {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	loja := getLojaFromRequest(r)
+	if loja == "" {
+		log.Printf("❌ Loja não identificada na requisição")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(SheetDataResponse{
+			Success: false,
+			Error:   "Loja não identificada",
+		})
+		return
+	}
+
+	log.Printf("📊 Buscando dados da planilha para loja: %s", loja)
+
+	// Obtém o serviço do Sheets
+	srv, err := getSheetsService(loja)
 	if err != nil {
-		return ""
+		log.Printf("❌ Erro ao obter serviço Sheets para loja %s: %v", loja, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(SheetDataResponse{
+			Success: false,
+			Error:   "Erro ao acessar planilha: " + err.Error(),
+		})
+		return
 	}
 
-	if loja, ok := session.Values["loja"].(string); ok {
-		return loja
+	// Obtém o ID da planilha
+	spreadsheetID := getSpreadsheetID(loja)
+	if spreadsheetID == "" {
+		log.Printf("❌ Planilha não configurada para loja: %s", loja)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(SheetDataResponse{
+			Success: false,
+			Error:   "Planilha não configurada para esta loja",
+		})
+		return
 	}
-	return ""
+
+	log.Printf("📊 Planilha ID: %s", spreadsheetID)
+
+	// Busca todos os dados da planilha
+	readRange := "A:Z"
+	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
+	if err != nil {
+		log.Printf("❌ Erro ao buscar dados da planilha %s: %v", spreadsheetID, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(SheetDataResponse{
+			Success: false,
+			Error:   "Erro ao buscar dados da planilha: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("✅ %d linhas carregadas da planilha da loja %s", len(resp.Values), loja)
+
+	// Retorna os dados
+	json.NewEncoder(w).Encode(SheetDataResponse{
+		Success: true,
+		Data:    resp.Values,
+		Loja:    loja,
+	})
 }
 
 // ============================================================
-// FUNÇÃO DE AUTENTICAÇÃO - MIDDLEWARE
-// ============================================================
-
-func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		session, err := store.Get(r, "session-pedidos872")
-		if err != nil {
-			http.Error(w, "Erro de sessão", http.StatusInternalServerError)
-			return
-		}
-
-		auth, ok := session.Values["authenticated"].(bool)
-		if !ok || !auth {
-			http.Error(w, "Não autorizado", http.StatusUnauthorized)
-			return
-		}
-
-		next(w, r)
-	}
-}
-
-// ============================================================
-// HANDLERS DE PAGAMENTOS (COM MULTI-LOJA)
+// HANDLERS DE PAGAMENTOS
 // ============================================================
 
 func handlePagamentos(w http.ResponseWriter, r *http.Request) {
@@ -544,7 +609,7 @@ func handleSalvarPagamento(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================
-// FUNÇÕES DE ACESSO AO GOOGLE SHEETS
+// FUNÇÕES DE ACESSO AO GOOGLE SHEETS - PAGAMENTOS
 // ============================================================
 
 func buscarPagamentos(loja string) ([]Pagamento, error) {
@@ -722,13 +787,18 @@ func main() {
 		log.Printf("   ✅ %s", username)
 	}
 
+	// Rotas públicas
 	http.HandleFunc("/api/login", corsMiddleware(loginHandler))
 	http.HandleFunc("/api/logout", corsMiddleware(logoutHandler))
 	http.HandleFunc("/api/check-auth", corsMiddleware(checkAuthHandler))
 	http.HandleFunc("/api/status", corsMiddleware(handleStatus))
 
+	// Rotas protegidas (requerem autenticação)
 	http.HandleFunc("/api/pagamentos", corsMiddleware(authMiddleware(handlePagamentos)))
 	http.HandleFunc("/api/pagamento", corsMiddleware(authMiddleware(handleSalvarPagamento)))
+	
+	// ===== NOVA ROTA PARA BUSCAR DADOS DA PLANILHA =====
+	http.HandleFunc("/api/sheet-data", corsMiddleware(authMiddleware(handleFetchSheetData)))
 
 	log.Printf("✅ Servidor pronto!")
 	log.Fatal(http.ListenAndServe(":"+port, nil))
