@@ -62,25 +62,32 @@ var users = map[string]User{
 		Role:     "admin",
 		Loja:     "loja872sh",
 	},
-	// ADICIONAR MAIS LOJAS AQUI:
-	// "loja168": {
-	//     Username: "loja168",
-	//     Password: hashPassword("senha168"),
-	//     Role:     "admin",
-	//     Loja:     "loja168mh",
-	// },
+	"pedidos419": {
+		Username: "pedidos419",
+		Password: hashPassword("capta419"),
+		Role:     "admin",
+		Loja:     "loja419sm",
+	},
+	"pedidos168": {
+		Username: "pedidos168",
+		Password: hashPassword("capta168"),
+		Role:     "admin",
+		Loja:     "loja168mh",
+	 },
 }
 
 // ===== MAPA DE PLANILHAS POR LOJA =====
 var spreadsheetMap = map[string]string{
 	"loja872sh": "1TAxNfLlG0hvUMHziMi2oMDeHt9AbKxamQOgZzefoYaI", // Planilha pedidos872
-	// "loja168mh": "1x4a-gJyjHVxNKBy0bsuAE40vpt5Y9O9f5xEEF7W-fcE", // Planilha loja168
+	"loja419sm": "1db1ES9_h5pyMh6P0OV59dfu2DWsciAIHsYZYzOjFZM4",
+	"loja168mh": "1CFcwQwDJAbzApSaX0kbefSkOnNTxV5A8pfW-Qff4790",
 }
 
 // ===== MAPA DE CREDENCIAIS POR LOJA =====
 var credenciaisSheets = map[string]string{
 	"loja872sh": "CREDENTIALS_PEDIDOS872",
-	// "loja168mh": "CREDENTIALS_LOJA168",
+	"loja419sm": "CREDENTIALS_PEDIDOS419",
+	"loja168mh": "CREDENTIALS_PEDIDOS168",
 }
 
 // Cache dos serviços do Sheets
