@@ -356,30 +356,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // HANDLERS DE AUTENTICAÇÃO
 // ============================================================
 
-func getLojaFromDomain(host string) string {
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
-    }
-
-    // Se for um subdomínio .gtgo.com.br
-    if strings.HasSuffix(host, ".gtgo.com.br") {
-        subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
-        // Mapeia subdomínio para loja
-        subdomainToLoja := map[string]string{
-            "pedidos872": "loja872sh",
-            "pedidos419": "loja419sm",
-            "pedidos168": "loja168mh",
-        }
-        if loja, exists := subdomainToLoja[subdomain]; exists {
-            return loja
-        }
-    }
-    
-    // Fallback: usa o host inteiro
-    return strings.ReplaceAll(host, ".", "_")
-}
-
-
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
