@@ -135,14 +135,14 @@ func initSessionStore() {
     secretKey := generateSecretKey()
     store = sessions.NewCookieStore([]byte(secretKey))
 
-    // ===== CONFIGURAÇÃO SIMPLES - SEM FRESCURA =====
+    // ===== CONFIGURAÇÃO PARA API DOMAIN =====
     store.Options = &sessions.Options{
         Path:     "/",
         MaxAge:   28800,
         HttpOnly: true,
-        Secure:   false,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
-        Domain:   "",
+        Domain:   "", // ← VAZIO = usa o domínio do backend (api-pedidos.gtgo.com.br)
     }
 
     log.Printf("🔐 Session Store configurado")
@@ -231,6 +231,31 @@ func getDomain(r *http.Request) string {
     return ""
 }
 
+
+func extractLojaFromOrigin(origin string) string {
+    if origin == "" {
+        return ""
+    }
+    
+    origin = strings.TrimPrefix(origin, "https://")
+    origin = strings.TrimPrefix(origin, "http://")
+    origin = strings.Split(origin, ":")[0]
+    
+    if strings.HasSuffix(origin, ".gtgo.com.br") {
+        subdomain := strings.TrimSuffix(origin, ".gtgo.com.br")
+        subdomainToLoja := map[string]string{
+            "pedidos872": "loja872sh",
+            "pedidos419": "loja419sm",
+            "pedidos168": "loja168mh",
+        }
+        if loja, exists := subdomainToLoja[subdomain]; exists {
+            return loja
+        }
+    }
+    return ""
+}
+
+
 func getLojaFromDomain(host string) string {
     if strings.Contains(host, ":") {
         host = strings.Split(host, ":")[0]
@@ -255,23 +280,37 @@ func getLojaFromDomain(host string) string {
 }
 
 func getLojaFromRequest(r *http.Request) string {
-    // ===== EXTRAIR LOJA DO DOMÍNIO =====
+    // ===== IDENTIFICAR LOJA PELO ORIGIN =====
+    origin := r.Header.Get("Origin")
+    lojaOrigin := extractLojaFromOrigin(origin)
+    
+    if lojaOrigin != "" {
+        sessionName := "session-" + lojaOrigin
+        session, err := store.Get(r, sessionName)
+        if err == nil {
+            if loja, ok := session.Values["loja"].(string); ok {
+                return loja
+            }
+        }
+    }
+    
+    // Fallback: tenta extrair do Host
     host := r.Host
     if strings.Contains(host, ":") {
         host = strings.Split(host, ":")[0]
     }
-    
-    lojaDominio := getLojaFromDomain(host)
-    sessionName := "session-" + lojaDominio
-    
-    session, err := store.Get(r, sessionName)
-    if err != nil {
-        return ""
+    if strings.HasSuffix(host, ".gtgo.com.br") {
+        subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+        subdomainToLoja := map[string]string{
+            "pedidos872": "loja872sh",
+            "pedidos419": "loja419sm",
+            "pedidos168": "loja168mh",
+        }
+        if loja, exists := subdomainToLoja[subdomain]; exists {
+            return loja
+        }
     }
-
-    if loja, ok := session.Values["loja"].(string); ok {
-        return loja
-    }
+    
     return ""
 }
 
@@ -331,14 +370,33 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
-        // ===== EXTRAIR LOJA DO DOMÍNIO =====
-        host := r.Host
-        if strings.Contains(host, ":") {
-            host = strings.Split(host, ":")[0]
+        // ===== IDENTIFICAR LOJA PELO ORIGIN =====
+        origin := r.Header.Get("Origin")
+        lojaOrigin := extractLojaFromOrigin(origin)
+        
+        if lojaOrigin == "" {
+            // Fallback: tenta extrair do Host
+            host := r.Host
+            if strings.Contains(host, ":") {
+                host = strings.Split(host, ":")[0]
+            }
+            if strings.HasSuffix(host, ".gtgo.com.br") {
+                subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+                subdomainToLoja := map[string]string{
+                    "pedidos872": "loja872sh",
+                    "pedidos419": "loja419sm",
+                    "pedidos168": "loja168mh",
+                }
+                if loja, exists := subdomainToLoja[subdomain]; exists {
+                    lojaOrigin = loja
+                }
+            }
         }
         
-        lojaDominio := getLojaFromDomain(host)
-        sessionName := "session-" + lojaDominio
+        sessionName := "session-" + lojaOrigin
+        if lojaOrigin == "" {
+            sessionName = "session-pedidos872" // fallback
+        }
         
         session, err := store.Get(r, sessionName)
         if err != nil {
@@ -355,6 +413,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
         next(w, r)
     }
 }
+
 // ============================================================
 // HANDLERS DE AUTENTICAÇÃO
 // ============================================================
@@ -408,17 +467,25 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // ===== EXTRAIR LOJA DO DOMÍNIO =====
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
+    // ===== IDENTIFICAR LOJA PELO ORIGIN =====
+    origin := r.Header.Get("Origin")
+    lojaOrigin := extractLojaFromOrigin(origin)
+    
+    log.Printf("🔍 Login - Origin: %s, Loja identificada: %s", origin, lojaOrigin)
+    
+    // ===== VALIDAR SE O USUÁRIO PERTENCE À LOJA =====
+    if lojaOrigin != "" && user.Loja != lojaOrigin {
+        log.Printf("🚫 Usuário %s da loja %s tentou logar na loja %s", user.Username, user.Loja, lojaOrigin)
+        w.WriteHeader(http.StatusForbidden)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Este usuário não pertence a esta loja",
+        })
+        return
     }
-    
-    lojaDominio := getLojaFromDomain(host)
-    sessionName := "session-" + lojaDominio
-    
-    log.Printf("🔐 Criando sessão para loja: %s (nome: %s)", lojaDominio, sessionName)
 
+    // ===== USAR SESSÃO ESPECÍFICA DA LOJA =====
+    sessionName := "session-" + user.Loja
     session, err := store.Get(r, sessionName)
     if err != nil {
         log.Printf("❌ Erro ao obter sessão: %v", err)
@@ -435,14 +502,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     session.Values["role"] = user.Role
     session.Values["loja"] = user.Loja
 
-    // ===== CONFIGURAÇÃO SIMPLES - SEM DOMAIN, SEM SEGURANÇA =====
+    // ===== CONFIGURAÇÃO DO COOKIE =====
+    // Domain vazio = navegador usa o domínio atual (api-pedidos.gtgo.com.br)
     session.Options = &sessions.Options{
         Path:     "/",
-        MaxAge:   28800, // 8 horas
+        MaxAge:   28800,
         HttpOnly: true,
-        Secure:   false,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
-        Domain:   "", // VAZIO = navegador usa o domínio atual
+        Domain:   "", // ← VAZIO = usa o domínio do backend (api-pedidos.gtgo.com.br)
     }
 
     if err := session.Save(r, w); err != nil {
@@ -466,17 +534,37 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 
+
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    // ===== EXTRAIR LOJA DO DOMÍNIO =====
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
+    // ===== IDENTIFICAR LOJA PELO ORIGIN =====
+    origin := r.Header.Get("Origin")
+    lojaOrigin := extractLojaFromOrigin(origin)
+    
+    if lojaOrigin == "" {
+        // Fallback: tenta extrair do Host
+        host := r.Host
+        if strings.Contains(host, ":") {
+            host = strings.Split(host, ":")[0]
+        }
+        if strings.HasSuffix(host, ".gtgo.com.br") {
+            subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+            subdomainToLoja := map[string]string{
+                "pedidos872": "loja872sh",
+                "pedidos419": "loja419sm",
+                "pedidos168": "loja168mh",
+            }
+            if loja, exists := subdomainToLoja[subdomain]; exists {
+                lojaOrigin = loja
+            }
+        }
     }
     
-    lojaDominio := getLojaFromDomain(host)
-    sessionName := "session-" + lojaDominio
+    sessionName := "session-" + lojaOrigin
+    if lojaOrigin == "" {
+        sessionName = "session-pedidos872" // fallback
+    }
 
     session, err := store.Get(r, sessionName)
     if err != nil {
@@ -492,9 +580,9 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
         Path:     "/",
         MaxAge:   -1,
         HttpOnly: true,
-        Secure:   false,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
-        Domain:   "",
+        Domain:   "", // ← VAZIO = usa o domínio do backend
     }
 
     session.Values["authenticated"] = false
@@ -522,14 +610,33 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    // ===== EXTRAIR LOJA DO DOMÍNIO =====
-    host := r.Host
-    if strings.Contains(host, ":") {
-        host = strings.Split(host, ":")[0]
+    // ===== IDENTIFICAR LOJA PELO ORIGIN =====
+    origin := r.Header.Get("Origin")
+    lojaOrigin := extractLojaFromOrigin(origin)
+    
+    if lojaOrigin == "" {
+        // Fallback: tenta extrair do Host
+        host := r.Host
+        if strings.Contains(host, ":") {
+            host = strings.Split(host, ":")[0]
+        }
+        if strings.HasSuffix(host, ".gtgo.com.br") {
+            subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+            subdomainToLoja := map[string]string{
+                "pedidos872": "loja872sh",
+                "pedidos419": "loja419sm",
+                "pedidos168": "loja168mh",
+            }
+            if loja, exists := subdomainToLoja[subdomain]; exists {
+                lojaOrigin = loja
+            }
+        }
     }
     
-    lojaDominio := getLojaFromDomain(host)
-    sessionName := "session-" + lojaDominio
+    sessionName := "session-" + lojaOrigin
+    if lojaOrigin == "" {
+        sessionName = "session-pedidos872" // fallback
+    }
 
     session, err := store.Get(r, sessionName)
     if err != nil {
@@ -553,6 +660,16 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
 
     username, _ := session.Values["username"].(string)
     loja, _ := session.Values["loja"].(string)
+
+    // ===== VALIDAR SE A LOJA DA SESSÃO CORRESPONDE AO ORIGIN =====
+    if lojaOrigin != "" && loja != lojaOrigin {
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(AuthResponse{
+            Success: false,
+            Message: "Sessão inválida para esta loja",
+        })
+        return
+    }
 
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
