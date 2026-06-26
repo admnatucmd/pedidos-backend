@@ -232,23 +232,26 @@ func getDomain(r *http.Request) string {
 }
 
 func getLojaFromDomain(host string) string {
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
-	}
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
 
-	subdomainToLoja := map[string]string{
-		"pedidos872": "loja872sh",
-		"pedidos419": "loja419sm",
-		"pedidos168": "loja168mh",
-	}
-
-	if strings.HasSuffix(host, ".gtgo.com.br") {
-		subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
-		if loja, exists := subdomainToLoja[subdomain]; exists {
-			return loja
-		}
-	}
-	return ""
+    // Se for um subdomínio .gtgo.com.br
+    if strings.HasSuffix(host, ".gtgo.com.br") {
+        subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+        // Mapeia subdomínio para loja
+        subdomainToLoja := map[string]string{
+            "pedidos872": "loja872sh",
+            "pedidos419": "loja419sm",
+            "pedidos168": "loja168mh",
+        }
+        if loja, exists := subdomainToLoja[subdomain]; exists {
+            return loja
+        }
+    }
+    
+    // Fallback: usa o host inteiro (remove caracteres especiais)
+    return strings.ReplaceAll(host, ".", "_")
 }
 
 func getLojaFromRequest(r *http.Request) string {
