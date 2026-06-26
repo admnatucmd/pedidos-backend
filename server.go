@@ -140,7 +140,7 @@ func initSessionStore() {
 		MaxAge:   28800,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 	}
 
 	log.Printf("🔐 Session Store configurado")
@@ -220,6 +220,43 @@ func getClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func getDomain(r *http.Request) string {
+	host := r.Host
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	if host == "localhost" || host == "127.0.0.1" {
+		return ""
+	}
+
+	if strings.HasSuffix(host, ".gtgo.com.br") {
+		return host
+	}
+
+	return host
+}
+
+func getLojaFromDomain(host string) string {
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	subdomainToLoja := map[string]string{
+		"pedidos872": "loja872sh",
+		"pedidos419": "loja419sm",
+		"pedidos168": "loja168mh",
+	}
+
+	if strings.HasSuffix(host, ".gtgo.com.br") {
+		subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+		if loja, exists := subdomainToLoja[subdomain]; exists {
+			return loja
+		}
+	}
+	return ""
 }
 
 func getLojaFromRequest(r *http.Request) string {
@@ -358,6 +395,23 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ===== VALIDAR SE O USUÁRIO PERTENCE AO SUBDOMÍNIO =====
+	host := r.Host
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	lojaEsperada := getLojaFromDomain(host)
+	if lojaEsperada != "" && user.Loja != lojaEsperada {
+		log.Printf("🚫 Usuário %s tentou logar no domínio errado: %s (esperado: %s)", user.Username, host, lojaEsperada)
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(AuthResponse{
+			Success: false,
+			Message: "Este usuário não pertence a este domínio",
+		})
+		return
+	}
+
 	session, err := store.Get(r, "session-pedidos872")
 	if err != nil {
 		log.Printf("❌ Erro ao obter sessão: %v", err)
@@ -374,12 +428,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	session.Values["role"] = user.Role
 	session.Values["loja"] = user.Loja
 
+	// ===== DEFINIR DOMAIN ESPECÍFICO DO COOKIE =====
+	domain := getDomain(r)
 	session.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   28800,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
+		Domain:   domain,
 	}
 
 	if err := session.Save(r, w); err != nil {
@@ -392,7 +449,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s)", user.Username, user.Loja, getClientIP(r))
+	log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s, Domain: %s)", user.Username, user.Loja, getClientIP(r), domain)
 
 	json.NewEncoder(w).Encode(AuthResponse{
 		Success: true,
@@ -414,19 +471,32 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ===== LIMPAR O COOKIE COM O DOMÍNIO CORRETO =====
+	domain := getDomain(r)
+	session.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		Domain:   domain,
+	}
+
 	session.Values["authenticated"] = false
 	session.Values["username"] = ""
 	session.Values["role"] = ""
 	session.Values["loja"] = ""
-	session.Options.MaxAge = -1
 
 	if err := session.Save(r, w); err != nil {
+		log.Printf("❌ Erro ao salvar sessão no logout: %v", err)
 		json.NewEncoder(w).Encode(AuthResponse{
 			Success: false,
 			Message: "Erro ao fazer logout",
 		})
 		return
 	}
+
+	log.Printf("✅ Logout realizado - Domain: %s", domain)
 
 	json.NewEncoder(w).Encode(AuthResponse{
 		Success: true,
@@ -459,6 +529,24 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	username, _ := session.Values["username"].(string)
 	loja, _ := session.Values["loja"].(string)
+
+	// ===== VALIDAR SE A LOJA DA SESSÃO CORRESPONDE AO DOMÍNIO =====
+	host := r.Host
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	if strings.HasSuffix(host, ".gtgo.com.br") {
+		lojaEsperada := getLojaFromDomain(host)
+		if lojaEsperada != "" && loja != lojaEsperada {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(AuthResponse{
+				Success: false,
+				Message: "Sessão inválida para este domínio",
+			})
+			return
+		}
+	}
 
 	json.NewEncoder(w).Encode(AuthResponse{
 		Success: true,
@@ -493,7 +581,6 @@ func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("📊 Buscando dados da planilha para loja: %s", loja)
 
-	// Obtém o serviço do Sheets
 	srv, err := getSheetsService(loja)
 	if err != nil {
 		log.Printf("❌ Erro ao obter serviço Sheets para loja %s: %v", loja, err)
@@ -505,7 +592,6 @@ func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtém o ID da planilha
 	spreadsheetID := getSpreadsheetID(loja)
 	if spreadsheetID == "" {
 		log.Printf("❌ Planilha não configurada para loja: %s", loja)
@@ -519,7 +605,7 @@ func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("📊 Planilha ID: %s", spreadsheetID)
 
-	// Busca todos os dados da planilha
+	// ===== LER TODAS AS COLUNAS (ATÉ BR = 70) =====
 	readRange := "A:BR"
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
 	if err != nil {
@@ -534,7 +620,6 @@ func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("✅ %d linhas carregadas da planilha da loja %s", len(resp.Values), loja)
 
-	// Retorna os dados
 	json.NewEncoder(w).Encode(SheetDataResponse{
 		Success: true,
 		Data:    resp.Values,
@@ -793,11 +878,9 @@ func main() {
 	http.HandleFunc("/api/check-auth", corsMiddleware(checkAuthHandler))
 	http.HandleFunc("/api/status", corsMiddleware(handleStatus))
 
-	// Rotas protegidas (requerem autenticação)
+	// Rotas protegidas
 	http.HandleFunc("/api/pagamentos", corsMiddleware(authMiddleware(handlePagamentos)))
 	http.HandleFunc("/api/pagamento", corsMiddleware(authMiddleware(handleSalvarPagamento)))
-	
-	// ===== NOVA ROTA PARA BUSCAR DADOS DA PLANILHA =====
 	http.HandleFunc("/api/sheet-data", corsMiddleware(authMiddleware(handleFetchSheetData)))
 
 	log.Printf("✅ Servidor pronto!")
