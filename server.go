@@ -252,15 +252,24 @@ func getLojaFromDomain(host string) string {
 }
 
 func getLojaFromRequest(r *http.Request) string {
-	session, err := store.Get(r, "session-pedidos872")
-	if err != nil {
-		return ""
-	}
+    // ===== EXTRAIR LOJA DO DOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+    
+    lojaDominio := getLojaFromDomain(host)
+    sessionName := "session-" + lojaDominio
+    
+    session, err := store.Get(r, sessionName)
+    if err != nil {
+        return ""
+    }
 
-	if loja, ok := session.Values["loja"].(string); ok {
-		return loja
-	}
-	return ""
+    if loja, ok := session.Values["loja"].(string); ok {
+        return loja
+    }
+    return ""
 }
 
 // ============================================================
@@ -318,26 +327,59 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // ============================================================
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		session, err := store.Get(r, "session-pedidos872")
-		if err != nil {
-			http.Error(w, "Erro de sessão", http.StatusInternalServerError)
-			return
-		}
+    return func(w http.ResponseWriter, r *http.Request) {
+        // ===== EXTRAIR LOJA DO DOMÍNIO =====
+        host := r.Host
+        if strings.Contains(host, ":") {
+            host = strings.Split(host, ":")[0]
+        }
+        
+        lojaDominio := getLojaFromDomain(host)
+        sessionName := "session-" + lojaDominio
+        
+        session, err := store.Get(r, sessionName)
+        if err != nil {
+            http.Error(w, "Erro de sessão", http.StatusInternalServerError)
+            return
+        }
 
-		auth, ok := session.Values["authenticated"].(bool)
-		if !ok || !auth {
-			http.Error(w, "Não autorizado", http.StatusUnauthorized)
-			return
-		}
+        auth, ok := session.Values["authenticated"].(bool)
+        if !ok || !auth {
+            http.Error(w, "Não autorizado", http.StatusUnauthorized)
+            return
+        }
 
-		next(w, r)
-	}
+        next(w, r)
+    }
 }
-
 // ============================================================
 // HANDLERS DE AUTENTICAÇÃO
 // ============================================================
+
+func getLojaFromDomain(host string) string {
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+
+    // Se for um subdomínio .gtgo.com.br
+    if strings.HasSuffix(host, ".gtgo.com.br") {
+        subdomain := strings.TrimSuffix(host, ".gtgo.com.br")
+        // Mapeia subdomínio para loja
+        subdomainToLoja := map[string]string{
+            "pedidos872": "loja872sh",
+            "pedidos419": "loja419sm",
+            "pedidos168": "loja168mh",
+        }
+        if loja, exists := subdomainToLoja[subdomain]; exists {
+            return loja
+        }
+    }
+    
+    // Fallback: usa o host inteiro
+    return strings.ReplaceAll(host, ".", "_")
+}
+
+
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
@@ -387,7 +429,18 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    session, err := store.Get(r, "session-pedidos872")
+    // ===== EXTRAIR LOJA DO DOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+    
+    lojaDominio := getLojaFromDomain(host)
+    sessionName := "session-" + lojaDominio
+    
+    log.Printf("🔐 Criando sessão para loja: %s (nome: %s)", lojaDominio, sessionName)
+
+    session, err := store.Get(r, sessionName)
     if err != nil {
         log.Printf("❌ Erro ao obter sessão: %v", err)
         w.WriteHeader(http.StatusInternalServerError)
@@ -408,9 +461,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         Path:     "/",
         MaxAge:   28800, // 8 horas
         HttpOnly: true,
-        Secure:   false, // ← FALSE para funcionar em qualquer lugar
+        Secure:   false,
         SameSite: http.SameSiteLaxMode,
-        Domain:   "",    // ← VAZIO = navegador usa o domínio atual
+        Domain:   "", // VAZIO = navegador usa o domínio atual
     }
 
     if err := session.Save(r, w); err != nil {
@@ -423,7 +476,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s)", user.Username, user.Loja, getClientIP(r))
+    log.Printf("✅ Login bem-sucedido: %s (Loja: %s, IP: %s, Sessão: %s)", user.Username, user.Loja, getClientIP(r), sessionName)
 
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
@@ -437,7 +490,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    session, err := store.Get(r, "session-pedidos872")
+    // ===== EXTRAIR LOJA DO DOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+    
+    lojaDominio := getLojaFromDomain(host)
+    sessionName := "session-" + lojaDominio
+
+    session, err := store.Get(r, sessionName)
     if err != nil {
         json.NewEncoder(w).Encode(AuthResponse{
             Success: false,
@@ -470,7 +532,7 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("✅ Logout realizado")
+    log.Printf("✅ Logout realizado - Sessão: %s", sessionName)
 
     json.NewEncoder(w).Encode(AuthResponse{
         Success: true,
@@ -478,11 +540,19 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
     })
 }
 
-
 func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
 
-    session, err := store.Get(r, "session-pedidos872")
+    // ===== EXTRAIR LOJA DO DOMÍNIO =====
+    host := r.Host
+    if strings.Contains(host, ":") {
+        host = strings.Split(host, ":")[0]
+    }
+    
+    lojaDominio := getLojaFromDomain(host)
+    sessionName := "session-" + lojaDominio
+
+    session, err := store.Get(r, sessionName)
     if err != nil {
         w.WriteHeader(http.StatusUnauthorized)
         json.NewEncoder(w).Encode(AuthResponse{
@@ -512,7 +582,6 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
         Loja:    loja,
     })
 }
-
 
 // ============================================================
 // HANDLER: BUSCAR DADOS DA PLANILHA VIA API
