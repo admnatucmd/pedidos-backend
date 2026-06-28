@@ -685,72 +685,78 @@ func checkAuthHandler(w http.ResponseWriter, r *http.Request) {
 // ============================================================
 
 func handleFetchSheetData(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json")
 
-	if r.Method != "GET" {
-		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
-		return
-	}
+    if r.Method != "GET" {
+        http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+        return
+    }
 
-	loja := getLojaFromRequest(r)
-	if loja == "" {
-		log.Printf("❌ Loja não identificada na requisição")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(SheetDataResponse{
-			Success: false,
-			Error:   "Loja não identificada",
-		})
-		return
-	}
+    loja := getLojaFromRequest(r)
+    if loja == "" {
+        log.Printf("❌ Loja não identificada na requisição")
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(SheetDataResponse{
+            Success: false,
+            Error:   "Loja não identificada",
+        })
+        return
+    }
 
-	log.Printf("📊 Buscando dados da planilha para loja: %s", loja)
+    // ===== LER O PARÂMETRO "sheet" DA URL =====
+    sheetName := r.URL.Query().Get("sheet")
+    if sheetName == "" {
+        sheetName = "Pagina1" // fallback para compatibilidade
+    }
+    log.Printf("📊 Buscando dados da aba: %s para loja: %s", sheetName, loja)
 
-	srv, err := getSheetsService(loja)
-	if err != nil {
-		log.Printf("❌ Erro ao obter serviço Sheets para loja %s: %v", loja, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(SheetDataResponse{
-			Success: false,
-			Error:   "Erro ao acessar planilha: " + err.Error(),
-		})
-		return
-	}
+    srv, err := getSheetsService(loja)
+    if err != nil {
+        log.Printf("❌ Erro ao obter serviço Sheets para loja %s: %v", loja, err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(SheetDataResponse{
+            Success: false,
+            Error:   "Erro ao acessar planilha: " + err.Error(),
+        })
+        return
+    }
 
-	spreadsheetID := getSpreadsheetID(loja)
-	if spreadsheetID == "" {
-		log.Printf("❌ Planilha não configurada para loja: %s", loja)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(SheetDataResponse{
-			Success: false,
-			Error:   "Planilha não configurada para esta loja",
-		})
-		return
-	}
+    spreadsheetID := getSpreadsheetID(loja)
+    if spreadsheetID == "" {
+        log.Printf("❌ Planilha não configurada para loja: %s", loja)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(SheetDataResponse{
+            Success: false,
+            Error:   "Planilha não configurada para esta loja",
+        })
+        return
+    }
 
-	log.Printf("📊 Planilha ID: %s", spreadsheetID)
+    log.Printf("📊 Planilha ID: %s, Aba: %s", spreadsheetID, sheetName)
 
-	// ===== LER TODAS AS COLUNAS (ATÉ BR = 70) =====
-	readRange := "A:BR"
-	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
-	if err != nil {
-		log.Printf("❌ Erro ao buscar dados da planilha %s: %v", spreadsheetID, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(SheetDataResponse{
-			Success: false,
-			Error:   "Erro ao buscar dados da planilha: " + err.Error(),
-		})
-		return
-	}
+    // ===== USA O NOME DA ABA RECEBIDO =====
+    readRange := fmt.Sprintf("%s!A:BR", sheetName)
+    
+    resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
+    if err != nil {
+        log.Printf("❌ Erro ao buscar dados da aba %s: %v", sheetName, err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(SheetDataResponse{
+            Success: false,
+            Error:   "Erro ao buscar dados da planilha: " + err.Error(),
+        })
+        return
+    }
 
-	log.Printf("✅ %d linhas carregadas da planilha da loja %s", len(resp.Values), loja)
+    log.Printf("✅ %d linhas carregadas da aba %s da loja %s", len(resp.Values), sheetName, loja)
 
-	json.NewEncoder(w).Encode(SheetDataResponse{
-		Success: true,
-		Data:    resp.Values,
-		Loja:    loja,
-	})
+    json.NewEncoder(w).Encode(SheetDataResponse{
+        Success: true,
+        Data:    resp.Values,
+        Loja:    loja,
+        // Opcional: retornar o nome da aba para debug
+    })
 }
-
 // ============================================================
 // HANDLERS DE PAGAMENTOS
 // ============================================================
