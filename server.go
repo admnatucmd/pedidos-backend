@@ -326,6 +326,7 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"https://pedidos872.gtgo.com.br",
 			"https://pedidos419.gtgo.com.br",
 			"https://pedidos168.gtgo.com.br",
+			"https://api-pedidos.gtgo.com.br",
 			"https://gtgo.com.br",
 			"https://www.gtgo.com.br",
 			"http://localhost:3000",
