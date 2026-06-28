@@ -964,6 +964,53 @@ func salvarPagamento(loja string, pag Pagamento) error {
 	return nil
 }
 
+func handleFetchProdutosPedido(w http.ResponseWriter, r *http.Request) {
+    // Extrai o ID do pedido da URL
+    path := r.URL.Path
+    parts := strings.Split(path, "/")
+    if len(parts) < 4 {
+        http.Error(w, "Pedido não especificado", http.StatusBadRequest)
+        return
+    }
+    pedidoID := parts[3]
+    
+    loja := getLojaFromRequest(r)
+    if loja == "" {
+        http.Error(w, "Loja não identificada", http.StatusUnauthorized)
+        return
+    }
+    
+    srv, err := getSheetsService(loja)
+    if err != nil {
+        http.Error(w, "Erro ao acessar planilha", http.StatusInternalServerError)
+        return
+    }
+    
+    spreadsheetID := getSpreadsheetID(loja)
+    readRange := "Produtos!A:W"
+    
+    resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
+    if err != nil {
+        http.Error(w, "Erro ao buscar dados", http.StatusInternalServerError)
+        return
+    }
+    
+    // Filtrar apenas as linhas do pedido específico
+    var linhasPedido [][]interface{}
+    for _, row := range resp.Values {
+        if len(row) > 0 && fmt.Sprintf("%v", row[0]) == pedidoID {
+            linhasPedido = append(linhasPedido, row)
+        }
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "success": true,
+        "data":    linhasPedido,
+        "pedido":  pedidoID,
+    })
+}
+
 // ============================================================
 // HANDLER DE STATUS
 // ============================================================
@@ -1005,6 +1052,7 @@ func main() {
 	http.HandleFunc("/api/pagamentos", corsMiddleware(authMiddleware(handlePagamentos)))
 	http.HandleFunc("/api/pagamento", corsMiddleware(authMiddleware(handleSalvarPagamento)))
 	http.HandleFunc("/api/sheet-data", corsMiddleware(authMiddleware(handleFetchSheetData)))
+	http.HandleFunc("/api/produtos/pedido/", corsMiddleware(authMiddleware(handleFetchProdutosPedido)))
 
 	log.Printf("✅ Servidor pronto!")
 	log.Fatal(http.ListenAndServe(":"+port, nil))
